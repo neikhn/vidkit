@@ -20,4 +20,4 @@ Read the [handoff contract](../vidkit-pipeline/references/handoff-contract.md).
 ## Completion and missing inputs
 A technical export success is not visual/audio approval. Unperformed checks remain unperformed. If narration changes, return to transcript and rebuild dependent timing. If only visuals change, reuse matching audio/transcript.
 
-No API client, Remotion composition or rendering helper is included in this skill-only package.
+The repository now includes a Remotion composition and Python preview/render helpers. They require the renderer dependencies to be installed before execution; visual and audio inspection remain explicit checks.

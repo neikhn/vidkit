@@ -1,7 +1,7 @@
 # Shared handoff contract
 Contract version: 1. Reviewed: 2026-09-24.
 
-This Markdown contract describes artifacts; it is not an implemented schema or runtime. Sibling modules use this source rather than duplicating contracts. Resolve links relative to the file containing them.
+This Markdown contract describes the full target workflow. The Python runtime currently implements revisioned script, audio, transcript, timeline and render records; source and publication adapters remain planned. Sibling modules use this source rather than duplicating contracts. Resolve links relative to the file containing them.
 
 ## Common envelope
 Every stage handoff identifies the job/topic, language, artifact revision, upstream revisions, producing skill/template version where known, actual output location, check results and unresolved issues. Record actual provider/model/settings when a service is used. Never invent missing identifiers, measurements or checksums.
