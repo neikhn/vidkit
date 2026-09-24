@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from .config import load_env_file, voice_id_for
 from .elevenlabs import ElevenLabsClient
 from .media import audio_duration
 from .models import ArtifactKind, ArtifactStatus, Mode
@@ -55,7 +56,7 @@ def build_parser() -> argparse.ArgumentParser:
     tts = sub.add_parser("tts")
     tts.add_argument("job_id")
     tts.add_argument("language")
-    tts.add_argument("--voice-id", required=True)
+    tts.add_argument("--voice-id")
 
     transcribe = sub.add_parser("transcribe")
     transcribe.add_argument("job_id")
@@ -81,6 +82,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     root = args.root.resolve()
+    load_env_file(root / ".env")
     workspace = Workspace(root)
     try:
         if args.command == "init":
@@ -131,7 +133,11 @@ def _add_script(workspace: Workspace, job_id: str, language: str, file: Path) ->
     print(artifact["path"])
 
 
-def _tts(workspace: Workspace, job_id: str, language: str, voice_id: str) -> None:
+def _tts(workspace: Workspace, job_id: str, language: str, voice_id: str | None) -> None:
+    voice_id = voice_id or voice_id_for(language)
+    if not voice_id:
+        variable = f"VIDKIT_VOICE_{language.upper().replace('-', '_')}"
+        raise RuntimeError(f"Missing voice ID: set {variable} in .env or pass --voice-id")
     script_artifact = require_artifact(workspace, job_id, language, ArtifactKind.SCRIPT)
     script = read_artifact_json(workspace.project_root, script_artifact)
     output = workspace.job_dir(job_id, language) / "narration.pending.mp3"

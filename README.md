@@ -46,9 +46,16 @@ vidkit status <job-id>
 
 ## ElevenLabs
 
+Tạo `.env` từ `.env.example` và điền API key cùng voice ID. Vidkit tự nạp file này từ thư mục project.
+
+```dotenv
+ELEVENLABS_API_KEY=your-key
+VIDKIT_VOICE_VI=your-vi-voice-id
+VIDKIT_VOICE_EN=your-en-voice-id
+```
+
 ```powershell
-$env:ELEVENLABS_API_KEY="..."
-vidkit tts <job-id> vi --voice-id <voice-id>
+vidkit tts <job-id> vi
 vidkit transcribe <job-id> vi
 ```
 
