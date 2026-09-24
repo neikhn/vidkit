@@ -1,99 +1,64 @@
 # Vidkit
 
-Vidkit là pipeline local-first để agent sản xuất video Shorts bằng Python, ElevenLabs và Remotion. Python quản lý workspace và kiểm tra dữ liệu; agent nghiên cứu, viết script, chọn hình và storyboard; Remotion preview/render từ dữ liệu đã kiểm tra.
+Vidkit is a local-first workflow for producing short-form product videos with Python, ElevenLabs, and Remotion.
 
 ```text
-source -> script -> Eleven v3 MP3 -> Scribe v2 word-level transcript
-       -> real assets -> anchored storyboard -> timeline -> preview -> export
+source -> script -> Eleven v3 narration -> word-level transcript
+       -> local assets -> storyboard -> preview -> export
 ```
 
-Chế độ mặc định là review và dừng ở preview. Vidkit không tự gọi LLM, đăng YouTube, tạo ảnh AI, phân tích beat nhạc hoặc bỏ qua lỗi dữ liệu trong chế độ automatic.
+Python manages project state and validates inputs. Agents research, write, select visuals, and prepare storyboards. Remotion previews and renders the validated timeline.
 
-## Cài đặt
+## Setup
 
-Yêu cầu Python 3.11+, Node.js LTS và FFmpeg.
+Requirements: Python 3.11+, Node.js LTS, and npm.
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -e .
+
 cd renderer
 npm install
 cd ..
+
 vidkit init
 vidkit doctor
 ```
 
-Tạo `.env` từ `.env.example`. Vidkit tự đọc file này tại thư mục dự án.
+Create `.env` from `.env.example`:
 
 ```dotenv
 ELEVENLABS_API_KEY=your-key
-VIDKIT_VOICE_VI=your-vi-voice-id
-VIDKIT_VOICE_EN=your-en-voice-id
+VIDKIT_VOICE_VI=your-vietnamese-voice-id
+VIDKIT_VOICE_EN=your-english-voice-id
 ```
 
-## Workspace
+## Agent workflow
 
-Dữ liệu sản xuất nằm trong `workspace/` và không được commit:
+Codex can run the complete workflow from the skills stored in `.agents/skills/`.
 
-```text
-workspace/
-├── workspace.sqlite3
-├── videos/
-│   └── 2026-09-24_demo-ai-tool_f95cecc90834/
-│       ├── project.json
-│       ├── sources/
-│       ├── assets/
-│       ├── vi/
-│       ├── en/
-│       ├── previews/
-│       └── exports/
-└── cache/
-```
+Example prompt:
 
-SQLite là trạng thái chính. `project.json` là bản tóm tắt dễ đọc do CLI cập nhật. Tên thư mục có ngày, tiêu đề không dấu và ID; `vidkit rename` chỉ đổi tiêu đề để liên kết cũ không hỏng.
+> Use vidkit-pipeline to create a Vietnamese product video from this URL. Use real product screenshots and stop at the Remotion preview for review.
 
-Chuyển dữ liệu v1 từ `.vidkit/` bằng:
+The agent should inspect the environment and job state first:
 
 ```powershell
-vidkit migrate
-```
-
-Migration kiểm tra checksum, giữ ID/revision, chạy lại an toàn và không xóa dữ liệu cũ.
-
-## Quản lý video
-
-```powershell
-vidkit create "Demo AI Tool" --languages vi,en --source-url https://example.com
+vidkit doctor
 vidkit list
-vidkit show <job-id>
 vidkit next <job-id> --language vi --json
-vidkit open <job-id>
-vidkit rename <job-id> "Tên mới"
 ```
 
-`vidkit list` hiển thị tiêu đề, ngôn ngữ, trạng thái và bước tiếp theo. `vidkit next` là giao diện để Codex hoặc Antigravity tiếp tục đúng bước thiếu.
+## CLI workflow
 
-## Test kỹ thuật không tốn API
-
-Test này xác minh nhập dữ liệu, caption, timeline và render. Timeline chia đều chỉ là bản nháp kỹ thuật.
+Create a video project:
 
 ```powershell
-vidkit create "Pipeline test" --languages vi
-vidkit add-script <job-id> vi .\script-vi.json
-vidkit import-transcript <job-id> vi .\transcript.json --audio .\narration.mp3
-vidkit timeline <job-id> vi --draft
-vidkit studio <job-id> vi
-vidkit render <job-id> vi
+vidkit create "Product name" --languages vi --source-url https://example.com/product
 ```
 
-## Quy trình sản xuất
-
-1. Agent nghiên cứu URL/chủ đề, kiểm chứng claim và lưu source pack.
-2. Agent viết script, chỉ ra nhu cầu hình và chuẩn bị lời đọc Eleven v3.
-3. Tạo MP3 rồi dùng ElevenLabs STT lấy word-level transcript.
-4. Nhập ảnh thật có nguồn. Agent viết storyboard theo `wordIndex`; Python mới chuyển anchor thành timestamp.
-5. Preview trong Studio, chỉnh asset/crop/layout và kiểm tra subtitle trước khi export.
+The command returns a job ID. Use that ID for the remaining steps:
 
 ```powershell
 vidkit add-source <job-id> .\source-pack.json
@@ -101,9 +66,9 @@ vidkit add-script <job-id> vi .\script-vi.json
 vidkit tts <job-id> vi
 vidkit transcribe <job-id> vi
 
-vidkit add-asset <job-id> .\screenshot-home.png `
-  --description "Màn hình chính" `
-  --usage-basis "official-media" `
+vidkit add-asset <job-id> .\screenshot.png `
+  --description "Product dashboard" `
+  --usage-basis "official product media" `
   --source-url https://example.com/product
 
 vidkit add-storyboard <job-id> vi .\storyboard-vi.json
@@ -112,31 +77,27 @@ vidkit studio <job-id> vi
 vidkit render <job-id> vi
 ```
 
-Ảnh bắt buộc bị thiếu sẽ hiện placeholder ở preview và chặn export. Thay ảnh hoặc storyboard không gọi lại TTS/STT; thay audio làm cũ transcript, subtitle, timeline và render.
-
-Studio mở timeline hiện tại và dùng `exports/` làm đích gợi ý. Nếu xuất trực tiếp trong Studio, ghi nhận file bằng:
+`vidkit studio` opens the review preview. `vidkit render` writes the tracked MP4 to the video's `exports/` directory. If a video is exported manually from Remotion Studio, register it with:
 
 ```powershell
 vidkit import-render <job-id> vi <path-to-mp4>
 ```
 
-## Dùng với agent
+## Project management
 
-Codex đọc các skill trong `.agents/skills/`. Prompt mẫu:
+Production data is stored under `workspace/`, which is excluded from Git. Each video has a readable directory name containing its creation date, title slug, and stable ID.
 
-> Dùng vidkit-pipeline tạo bản nháp video tiếng Việt về URL này, dùng ảnh thật và dừng ở preview.
-
-Quy trình CLI đầy đủ và schema storyboard nằm tại `.agents/skills/vidkit-pipeline/references/cli-workflow.md`. Hướng dẫn Antigravity nằm tại `docs/antigravity.md`; môi trường này chưa được nghiệm thu end-to-end.
-
-## Script tối thiểu
-
-```json
-{
-  "editorial_text": "Nội dung sạch để biên tập.",
-  "expected_spoken_text": "Nội dung sạch để biên tập.",
-  "tts_input": "[curious] Nội dung sạch để biên tập.",
-  "title": "Tiêu đề video"
-}
+```powershell
+vidkit list
+vidkit show <job-id>
+vidkit open <job-id>
+vidkit rename <job-id> "New title"
+vidkit next <job-id> --language vi --json
 ```
 
-TTS dùng `eleven_v3`. STT dùng `scribe_v2`; raw response và transcript normalized được lưu riêng. Word timing điều khiển scene và caption; storyboard điều khiển nhịp kể.
+Changing visuals or the storyboard reuses existing narration and transcription. Replacing the audio invalidates the transcript, timeline, subtitles, and renders. Missing required images remain visible as placeholders in Studio and block final export.
+
+## References
+
+- Agent CLI contract and storyboard schema: `.agents/skills/vidkit-pipeline/references/cli-workflow.md`
+- Antigravity usage: `docs/antigravity.md`
