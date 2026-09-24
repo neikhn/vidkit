@@ -98,12 +98,10 @@ def build_parser() -> argparse.ArgumentParser:
     tts.add_argument("job_id")
     tts.add_argument("language")
     tts.add_argument("--voice-id")
-    tts.add_argument("--confirm-paid", action="store_true")
 
     transcribe = sub.add_parser("transcribe")
     transcribe.add_argument("job_id")
     transcribe.add_argument("language")
-    transcribe.add_argument("--confirm-paid", action="store_true")
 
     import_transcript = sub.add_parser("import-transcript")
     import_transcript.add_argument("job_id")
@@ -173,10 +171,8 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "add-storyboard":
             _add_storyboard(workspace, args.job_id, args.language, args.file)
         elif args.command == "tts":
-            _require_paid_authorization(args.confirm_paid)
             _tts(workspace, args.job_id, args.language, args.voice_id)
         elif args.command == "transcribe":
-            _require_paid_authorization(args.confirm_paid)
             _transcribe(workspace, args.job_id, args.language)
         elif args.command == "import-transcript":
             _import_transcript(workspace, args.job_id, args.language, args.file, args.audio)
@@ -213,7 +209,6 @@ def _doctor(workspace: Workspace, as_json: bool) -> None:
         "elevenLabsApiKey": bool(os.environ.get("ELEVENLABS_API_KEY")),
         "voiceVi": bool(voice_id_for("vi")),
         "voiceEn": bool(voice_id_for("en")),
-        "paidBudgetConfigured": _configured_paid_budget() is not None,
     }
     if as_json:
         print(json.dumps(checks, ensure_ascii=False, indent=2))
@@ -284,10 +279,10 @@ def _next_state(workspace: Workspace, job: dict[str, Any], language: str) -> dic
     if not workspace.latest_artifact(job_id, ArtifactKind.SCRIPT, language):
         return {"jobId": job_id, "language": language, "step": "script", "command": f"vidkit add-script {job_id} {language} <script.json>", "issues": issues}
     if not workspace.latest_artifact(job_id, ArtifactKind.AUDIO, language):
-        return {"jobId": job_id, "language": language, "step": "voice", "command": f"vidkit tts {job_id} {language}", "issues": _paid_step_issues()}
+        return {"jobId": job_id, "language": language, "step": "voice", "command": f"vidkit tts {job_id} {language}", "issues": issues}
     transcript = _normalized_transcript_artifact(workspace, job_id, language)
     if not transcript:
-        return {"jobId": job_id, "language": language, "step": "transcript", "command": f"vidkit transcribe {job_id} {language}", "issues": _paid_step_issues()}
+        return {"jobId": job_id, "language": language, "step": "transcript", "command": f"vidkit transcribe {job_id} {language}", "issues": issues}
     if transcript["status"] != ArtifactStatus.CHECKED.value:
         issues.append(f"transcript status is {transcript['status']}")
     if not workspace.latest_artifact(job_id, ArtifactKind.STORYBOARD, language):
@@ -305,32 +300,6 @@ def _next_state(workspace: Workspace, job: dict[str, Any], language: str) -> dic
     if not workspace.latest_artifact(job_id, ArtifactKind.RENDER, language):
         return {"jobId": job_id, "language": language, "step": "preview", "command": f"vidkit studio {job_id} {language}", "issues": issues}
     return {"jobId": job_id, "language": language, "step": "review", "command": f"vidkit show {job_id}", "issues": issues}
-
-
-def _configured_paid_budget() -> float | None:
-    raw = os.environ.get("VIDKIT_PAID_BUDGET_USD", "").strip()
-    if not raw:
-        return None
-    try:
-        value = float(raw)
-    except ValueError:
-        return None
-    return value if value > 0 else None
-
-
-def _paid_step_issues() -> list[str]:
-    if _configured_paid_budget() is not None:
-        return []
-    return ["paid-step blocked: configure VIDKIT_PAID_BUDGET_USD or pass --confirm-paid"]
-
-
-def _require_paid_authorization(confirmed: bool) -> None:
-    if confirmed or _configured_paid_budget() is not None:
-        return
-    raise RuntimeError(
-        "Paid step blocked: set a positive VIDKIT_PAID_BUDGET_USD in .env "
-        "or rerun with --confirm-paid"
-    )
 
 
 def _add_source(workspace: Workspace, job_id: str, file: Path) -> None:

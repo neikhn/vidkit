@@ -16,7 +16,7 @@ Read the [contract](../vidkit-pipeline/references/handoff-contract.md) and [tran
 4. Check temporal validity and compare recognized content with expected speech. Ignore harmless punctuation/case/number-format differences, but flag changed quantities, missing phrases and name errors.
 5. Preserve uncertain corrections and findings; do not silently rewrite recognized text to make it match the script.
 6. Hand off checked words and unresolved issues to storyboard.
-7. After the paid-step checkpoint, generate with `vidkit transcribe <job-id> <language>` using a positive `VIDKIT_PAID_BUDGET_USD`, or use `--confirm-paid` for one explicitly authorized call. Preserve an existing export with `vidkit import-transcript`. Use the normalized transcript artifact when assigning storyboard word indexes.
+7. Generate with `vidkit transcribe <job-id> <language>`, or preserve an existing export with `vidkit import-transcript`. Use the normalized transcript artifact when assigning storyboard word indexes.
 
 ## Completion and missing inputs
 Without MP3, structural inspection is possible but audio synchronization remains unverified. Without the expected script, timing inspection is possible but fidelity to intended wording remains unverified. Missing API tooling means transcription is not executed.

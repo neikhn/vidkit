@@ -30,7 +30,6 @@ Tạo `.env` từ `.env.example`. Vidkit tự đọc file này tại thư mục 
 ELEVENLABS_API_KEY=your-key
 VIDKIT_VOICE_VI=your-vi-voice-id
 VIDKIT_VOICE_EN=your-en-voice-id
-VIDKIT_PAID_BUDGET_USD=5
 ```
 
 ## Workspace
@@ -92,11 +91,9 @@ vidkit render <job-id> vi
 
 1. Agent nghiên cứu URL/chủ đề, kiểm chứng claim và lưu source pack.
 2. Agent viết script, chỉ ra nhu cầu hình và chuẩn bị lời đọc Eleven v3.
-3. Chỉ khi ngân sách đã được cấu hình hoặc xác nhận, tạo MP3 rồi dùng ElevenLabs STT lấy word-level transcript.
+3. Tạo MP3 rồi dùng ElevenLabs STT lấy word-level transcript.
 4. Nhập ảnh thật có nguồn. Agent viết storyboard theo `wordIndex`; Python mới chuyển anchor thành timestamp.
 5. Preview trong Studio, chỉnh asset/crop/layout và kiểm tra subtitle trước khi export.
-
-`VIDKIT_PAID_BUDGET_USD` phải là số dương trước khi gọi TTS/STT. Với một lần chạy đã được xác nhận trực tiếp, có thể dùng `--confirm-paid`; CLI không tự retry request có kết quả chưa rõ.
 
 ```powershell
 vidkit add-source <job-id> .\source-pack.json

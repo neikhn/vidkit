@@ -35,7 +35,7 @@ Scene and caption timing derive from the final audio's transcript. Preserve mapp
 ## Modes and failure handling
 Review mode requires explicit approval of the exact publication package. Automatic mode uses the user's configured publishing authorization and destination; it does not waive checks. Unresolved source, transcript, asset or render issues go to review. Mode selection is not permission to install tools, create accounts or broaden destinations.
 
-Before paid work, establish the configured usage/retry budget. Default content repair allows one automatic audio regeneration within that budget; persistent problems go to review. Do not blindly repeat an uncertain paid request. For an uncertain upload, reconcile existing upload state before another upload.
+Do not blindly repeat an uncertain API request. For an uncertain upload, reconcile existing upload state before another upload.
 
 Technical checks and content checks are distinct. An LLM saying “looks good” cannot substitute for measuring timestamps or inspecting a rendered file. When automation code is absent, mark checks not run rather than claiming automated validation.
 

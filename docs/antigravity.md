@@ -15,7 +15,7 @@ Vidkit dùng cùng skills và CLI trong Codex và Antigravity. Luồng Antigravi
 Dùng skill vidkit-pipeline để tiếp tục job <job-id> bằng tiếng Việt.
 Chạy vidkit doctor và vidkit next <job-id> --language vi --json trước.
 Không sửa SQLite trực tiếp. Chỉ nhập dữ liệu qua CLI.
-Không gọi TTS/STT trả phí nếu ngân sách chưa được cấu hình hoặc xác nhận.
+Không tự lặp lại request TTS/STT khi kết quả trước đó chưa rõ.
 Storyboard phải dùng wordIndex từ transcript; Python chịu trách nhiệm tạo timestamp.
 Dừng ở preview để review.
 ```

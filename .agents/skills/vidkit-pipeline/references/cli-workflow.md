@@ -6,7 +6,7 @@ Runtime contract version: 2. Workspace paths are relative to `workspace/`. Inspe
 
 1. Create a job with `vidkit create "Title" --languages vi,en --source-url <url>`.
 2. Import research with `vidkit add-source <job-id> source-pack.json`.
-3. Import localized scripts, then stop at the paid-step note from `vidkit next` unless `VIDKIT_PAID_BUDGET_USD` is positive or the user explicitly authorizes one call with `--confirm-paid`.
+3. Import localized scripts, then generate the configured narration and transcript.
 4. Generate final narration and word-level transcript.
 5. Add local images with `vidkit add-asset`. Record `assetId` values.
 6. Write one storyboard per language using normalized transcript word indexes.

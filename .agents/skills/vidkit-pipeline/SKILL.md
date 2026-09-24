@@ -22,7 +22,7 @@ Route only the needed modules:
 2. Maintain independent localized revisions; research and authorized visual assets may be shared.
 3. Follow script → Eleven v3 TTS → final MP3 → ElevenLabs STT word-level → checks → storyboard → render → publishing.
 4. Apply dependency invalidation from the contract after edits.
-5. Use `vidkit next <job-id> --language <language> --json` after each handoff. Treat its paid-step note as a budget checkpoint, not authorization.
+5. Use `vidkit next <job-id> --language <language> --json` after each handoff.
 6. Report actual stage status, workspace artifact locations and the next concrete dependency.
 
 Daily discovery plus on-demand input is the intended operating model, not an installed schedule. Skills do not start background work.
