@@ -4,10 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "vidkit"
-version = "0.1.0"
+version = "0.2.0"
 description = "Local-first AI Shorts production pipeline"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = ["Pillow>=11.0,<13", "mutagen>=1.47,<2"]
 
 [project.scripts]
 vidkit = "vidkit.cli:main"

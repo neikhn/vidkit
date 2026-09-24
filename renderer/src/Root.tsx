@@ -3,7 +3,7 @@ import {CalculateMetadataFunction, Composition} from 'remotion';
 import {VidkitShort, VidkitShortProps} from './VidkitShort';
 
 const defaultProps: VidkitShortProps = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   language: 'vi',
   title: 'Vidkit preview',
   audioSrc: '',
@@ -12,14 +12,15 @@ const defaultProps: VidkitShortProps = {
   scenes: [
     {
       id: 'scene-1',
-      type: 'headline',
+      layout: 'hook',
       title: 'Vidkit preview',
-      body: 'Truyền timeline JSON để dựng video.',
+      body: 'Truyền storyboard và timeline JSON để dựng video.',
       startMs: 0,
       endMs: 10000,
       status: 'provisional',
     },
   ],
+  safeArea: {top: 88, right: 150, bottom: 260, left: 64},
 };
 
 const calculateMetadata: CalculateMetadataFunction<VidkitShortProps> = ({props}) => ({

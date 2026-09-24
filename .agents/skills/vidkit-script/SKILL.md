@@ -15,6 +15,7 @@ Output: script bundle under the [handoff contract](../vidkit-pipeline/references
 4. Target 45–75 seconds by default, but label length as estimated until actual narration is available.
 5. Supply a visual idea per beat without inventing demonstrations or benchmark results.
 6. Keep clean editorial narration separate from display text; hand pronunciation and expression preparation to [voice](../vidkit-voice/SKILL.md).
+7. Save each language with `vidkit add-script <job-id> <language> <script.json>`; keep visuals out of `tts_input`.
 
 ## Completion and missing inputs
 Complete when scripts are coherent, supported and ready for voice preparation. Each episode must add a specific explanation or useful judgment; reusable graphics are not a substitute for original content.

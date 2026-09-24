@@ -16,6 +16,7 @@ Read the [contract](../vidkit-pipeline/references/handoff-contract.md) and [Elev
 4. If an authorized client and budget exist, generate a coherent narration take. Otherwise deliver prepared text and required configuration only.
 5. Finish narration edits/joins before transcription. Record the final audio identity and duration when measurable.
 6. Hand off final MP3 to [transcript](../vidkit-transcript/SKILL.md); do not replace the agreed STT stage with TTS timestamps.
+7. After the budget checkpoint, set a positive `VIDKIT_PAID_BUDGET_USD` and generate with `vidkit tts <job-id> <language>`. For one explicitly authorized call, use `--confirm-paid`. The CLI loads the configured voice and API key from `.env` and records the actual model/voice revision.
 
 ## Completion and missing inputs
 Text preparation can complete without a voice ID or API client; generation cannot. Label these states separately. Missing credentials are configuration dependencies, not content to paste into a document.

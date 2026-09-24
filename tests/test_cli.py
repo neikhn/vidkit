@@ -5,12 +5,32 @@ from contextlib import redirect_stdout
 from io import StringIO
 from pathlib import Path
 
-from vidkit.cli import main
+from vidkit.cli import _validate_source_pack, main
 from vidkit.models import ArtifactKind
 from vidkit.storage import Workspace
 
 
 class CliWorkflowTests(unittest.TestCase):
+    def test_source_pack_requires_traceable_claim_fields(self):
+        self.assertTrue(_validate_source_pack({"claims": [{"id": "one"}]}))
+        self.assertEqual(
+            _validate_source_pack(
+                {
+                    "claims": [
+                        {
+                            "id": "one",
+                            "statement": "Supported claim",
+                            "sourceUrl": "https://example.com/docs",
+                            "publishedAt": None,
+                            "retrievedAt": "2026-09-24",
+                            "uncertainty": None,
+                        }
+                    ]
+                }
+            ),
+            [],
+        )
+
     def test_imported_transcript_builds_provisional_timeline(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -70,7 +90,7 @@ class CliWorkflowTests(unittest.TestCase):
                     ),
                     0,
                 )
-                self.assertEqual(main(["--root", str(root), "timeline", job_id, "vi"]), 0)
+                self.assertEqual(main(["--root", str(root), "timeline", job_id, "vi", "--draft"]), 0)
 
             workspace = Workspace(root)
             transcript = workspace.latest_artifact(job_id, ArtifactKind.TRANSCRIPT, "vi")
@@ -79,10 +99,10 @@ class CliWorkflowTests(unittest.TestCase):
             vtt = workspace.latest_artifact(job_id, ArtifactKind.SUBTITLE_VTT, "vi")
             self.assertEqual(transcript["status"], "needs-review")
             self.assertEqual(timeline["status"], "needs-review")
-            self.assertTrue((root / srt["path"]).is_file())
-            self.assertTrue((root / vtt["path"]).is_file())
-            timeline_payload = json.loads((root / timeline["path"]).read_text(encoding="utf-8"))
-            self.assertEqual(timeline_payload["storyboardStatus"], "provisional")
+            self.assertTrue(workspace.resolve_path(srt).is_file())
+            self.assertTrue(workspace.resolve_path(vtt).is_file())
+            timeline_payload = json.loads(workspace.resolve_path(timeline).read_text(encoding="utf-8"))
+            self.assertEqual(timeline_payload["storyboardStatus"], "technical-draft")
             self.assertEqual(timeline_payload["captions"][0]["tokens"][0]["start_ms"], 0)
 
 

@@ -4,6 +4,7 @@ import hashlib
 import json
 import shutil
 import sqlite3
+import unicodedata
 import uuid
 from contextlib import contextmanager
 from datetime import UTC, datetime
@@ -14,6 +15,20 @@ from .models import ArtifactKind, ArtifactStatus, Mode
 
 
 STAGE_ORDER = [kind.value for kind in ArtifactKind]
+SHARED_KINDS = {ArtifactKind.SOURCE, ArtifactKind.ASSET_MANIFEST}
+KIND_DIRECTORIES = {
+    ArtifactKind.SOURCE: "sources",
+    ArtifactKind.ASSET_MANIFEST: "assets",
+    ArtifactKind.SCRIPT: "scripts",
+    ArtifactKind.AUDIO: "audio",
+    ArtifactKind.TRANSCRIPT: "transcripts",
+    ArtifactKind.STORYBOARD: "storyboard",
+    ArtifactKind.TIMELINE: "storyboard",
+    ArtifactKind.SUBTITLE_SRT: "subtitles",
+    ArtifactKind.SUBTITLE_VTT: "subtitles",
+    ArtifactKind.RENDER: "exports",
+    ArtifactKind.PUBLICATION: "exports",
+}
 
 
 def utc_now() -> str:
@@ -28,15 +43,27 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def slugify(value: str, max_length: int = 48) -> str:
+    normalized = unicodedata.normalize("NFKD", value)
+    ascii_text = normalized.encode("ascii", "ignore").decode("ascii").lower()
+    slug = "".join(char if char.isalnum() else "-" for char in ascii_text)
+    slug = "-".join(part for part in slug.split("-") if part)
+    return (slug or "video")[:max_length].rstrip("-")
+
+
 class Workspace:
     def __init__(self, project_root: Path):
         self.project_root = project_root.resolve()
-        self.state_root = self.project_root / ".vidkit"
-        self.db_path = self.state_root / "vidkit.sqlite3"
-        self.artifacts_root = self.state_root / "artifacts"
+        self.workspace_root = self.project_root / "workspace"
+        self.state_root = self.workspace_root
+        self.db_path = self.workspace_root / "workspace.sqlite3"
+        self.videos_root = self.workspace_root / "videos"
+        self.cache_root = self.workspace_root / "cache"
+        self.legacy_root = self.project_root / ".vidkit"
 
     def initialize(self) -> None:
-        self.artifacts_root.mkdir(parents=True, exist_ok=True)
+        self.videos_root.mkdir(parents=True, exist_ok=True)
+        self.cache_root.mkdir(parents=True, exist_ok=True)
         with self.connect() as conn:
             conn.executescript(
                 """
@@ -49,6 +76,7 @@ class Workspace:
                   mode TEXT NOT NULL,
                   languages_json TEXT NOT NULL,
                   status TEXT NOT NULL,
+                  folder_name TEXT NOT NULL UNIQUE,
                   created_at TEXT NOT NULL,
                   updated_at TEXT NOT NULL
                 );
@@ -68,12 +96,17 @@ class Workspace:
                 );
                 CREATE INDEX IF NOT EXISTS idx_artifact_latest
                   ON artifacts(job_id, language, kind, revision DESC);
+                CREATE TABLE IF NOT EXISTS workspace_meta (
+                  key TEXT PRIMARY KEY,
+                  value TEXT NOT NULL
+                );
+                INSERT OR REPLACE INTO workspace_meta(key, value) VALUES ('schema_version', '2');
                 """
             )
 
     @contextmanager
     def connect(self) -> Iterator[sqlite3.Connection]:
-        self.state_root.mkdir(parents=True, exist_ok=True)
+        self.workspace_root.mkdir(parents=True, exist_ok=True)
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys=ON")
@@ -96,9 +129,10 @@ class Workspace:
         normalized_languages = list(dict.fromkeys(lang.strip() for lang in languages if lang.strip()))
         if not normalized_languages:
             raise ValueError("At least one language is required")
+        folder_name = self._folder_name(job_id, topic, now)
         with self.connect() as conn:
             conn.execute(
-                "INSERT INTO jobs VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO jobs VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     job_id,
                     topic,
@@ -106,10 +140,13 @@ class Workspace:
                     mode.value,
                     json.dumps(normalized_languages, ensure_ascii=False),
                     "prepared",
+                    folder_name,
                     now,
                     now,
                 ),
             )
+        self._ensure_job_tree(job_id)
+        self.update_project_manifest(job_id)
         return job_id
 
     def get_job(self, job_id: str) -> dict[str, Any]:
@@ -119,14 +156,60 @@ class Workspace:
             raise KeyError(f"Unknown job: {job_id}")
         result = dict(row)
         result["languages"] = json.loads(result.pop("languages_json"))
+        result["directory"] = f"videos/{result['folder_name']}"
         return result
 
+    def list_jobs(self) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute("SELECT * FROM jobs ORDER BY created_at DESC").fetchall()
+        jobs = []
+        for row in rows:
+            job = dict(row)
+            job["languages"] = json.loads(job.pop("languages_json"))
+            job["directory"] = f"videos/{job['folder_name']}"
+            jobs.append(job)
+        return jobs
+
+    def rename_job(self, job_id: str, topic: str) -> dict[str, Any]:
+        topic = topic.strip()
+        if not topic:
+            raise ValueError("Title cannot be empty")
+        with self.connect() as conn:
+            updated = conn.execute(
+                "UPDATE jobs SET topic = ?, updated_at = ? WHERE id = ?",
+                (topic, utc_now(), job_id),
+            ).rowcount
+        if not updated:
+            raise KeyError(f"Unknown job: {job_id}")
+        self.update_project_manifest(job_id)
+        return self.get_job(job_id)
+
+    def job_root(self, job_id: str) -> Path:
+        job = self.get_job(job_id)
+        return self.videos_root / job["folder_name"]
+
     def job_dir(self, job_id: str, language: str | None = None) -> Path:
-        target = self.artifacts_root / job_id
+        target = self.job_root(job_id)
         if language:
             target /= language
         target.mkdir(parents=True, exist_ok=True)
         return target
+
+    def pending_path(self, job_id: str, language: str | None, filename: str) -> Path:
+        target = self.cache_root / "jobs" / job_id
+        if language:
+            target /= language
+        target.mkdir(parents=True, exist_ok=True)
+        return target / filename
+
+    def asset_dir(self, job_id: str) -> Path:
+        target = self.job_root(job_id) / "assets" / "files"
+        target.mkdir(parents=True, exist_ok=True)
+        return target
+
+    def resolve_path(self, artifact_or_path: dict[str, Any] | str) -> Path:
+        value = artifact_or_path["path"] if isinstance(artifact_or_path, dict) else artifact_or_path
+        return (self.workspace_root / value).resolve()
 
     def latest_artifact(
         self,
@@ -166,7 +249,8 @@ class Workspace:
     ) -> dict[str, Any]:
         self.get_job(job_id)
         revision = self._next_revision(job_id, language, kind)
-        output = self.job_dir(job_id, language) / f"{kind.value}.r{revision}.json"
+        output = self._artifact_output(job_id, language, kind, revision, ".json")
+        output.parent.mkdir(parents=True, exist_ok=True)
         output.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
         return self._record_artifact(
             job_id, language, kind, revision, status, output, upstream, metadata
@@ -187,7 +271,8 @@ class Workspace:
         if not source.is_file():
             raise FileNotFoundError(source)
         revision = self._next_revision(job_id, language, kind)
-        output = self.job_dir(job_id, language) / f"{kind.value}.r{revision}{source.suffix.lower()}"
+        output = self._artifact_output(job_id, language, kind, revision, source.suffix.lower())
+        output.parent.mkdir(parents=True, exist_ok=True)
         if source != output.resolve():
             shutil.copy2(source, output)
         return self._record_artifact(
@@ -210,6 +295,168 @@ class Workspace:
                 (job_id, language, *downstream),
             )
             conn.execute("UPDATE jobs SET updated_at = ? WHERE id = ?", (utc_now(), job_id))
+        self.update_project_manifest(job_id)
+
+    def invalidate_visuals(self, job_id: str) -> None:
+        kinds = [
+            ArtifactKind.TIMELINE.value,
+            ArtifactKind.SUBTITLE_SRT.value,
+            ArtifactKind.SUBTITLE_VTT.value,
+            ArtifactKind.RENDER.value,
+            ArtifactKind.PUBLICATION.value,
+        ]
+        placeholders = ",".join("?" for _ in kinds)
+        with self.connect() as conn:
+            conn.execute(
+                f"UPDATE artifacts SET status = 'invalidated' "
+                f"WHERE job_id = ? AND kind IN ({placeholders}) AND status != 'published'",
+                (job_id, *kinds),
+            )
+            conn.execute("UPDATE jobs SET updated_at = ? WHERE id = ?", (utc_now(), job_id))
+        self.update_project_manifest(job_id)
+
+    def migrate_legacy(self) -> dict[str, int]:
+        legacy_db = self.legacy_root / "vidkit.sqlite3"
+        if not legacy_db.is_file():
+            return {"jobs": 0, "artifacts": 0, "skipped_jobs": 0}
+        self.initialize()
+        old = sqlite3.connect(legacy_db)
+        old.row_factory = sqlite3.Row
+        migrated_jobs = 0
+        migrated_artifacts = 0
+        skipped_jobs = 0
+        try:
+            legacy_jobs = old.execute("SELECT * FROM jobs ORDER BY created_at").fetchall()
+            for row in legacy_jobs:
+                job_id = row["id"]
+                with self.connect() as conn:
+                    exists = conn.execute("SELECT 1 FROM jobs WHERE id = ?", (job_id,)).fetchone()
+                if exists:
+                    skipped_jobs += 1
+                else:
+                    folder_name = self._folder_name(job_id, row["topic"], row["created_at"])
+                    with self.connect() as conn:
+                        conn.execute(
+                            "INSERT INTO jobs VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                            (
+                                job_id,
+                                row["topic"],
+                                row["source_url"],
+                                row["mode"],
+                                row["languages_json"],
+                                row["status"],
+                                folder_name,
+                                row["created_at"],
+                                row["updated_at"],
+                            ),
+                        )
+                    migrated_jobs += 1
+                self._ensure_job_tree(job_id)
+                rows = old.execute(
+                    "SELECT * FROM artifacts WHERE job_id = ? ORDER BY id", (job_id,)
+                ).fetchall()
+                for artifact_row in rows:
+                    source = (self.project_root / artifact_row["path"]).resolve()
+                    if not source.is_relative_to(self.legacy_root.resolve()):
+                        raise ValueError(f"Legacy artifact is outside .vidkit: {source}")
+                    if not source.is_file():
+                        raise FileNotFoundError(f"Legacy artifact is missing: {source}")
+                    actual_hash = sha256_file(source)
+                    if actual_hash != artifact_row["sha256"]:
+                        raise ValueError(f"Legacy checksum mismatch: {source}")
+                    with self.connect() as conn:
+                        existing_artifact = conn.execute(
+                            "SELECT * FROM artifacts WHERE job_id = ? AND language IS ? "
+                            "AND kind = ? AND revision = ?",
+                            (
+                                job_id,
+                                artifact_row["language"],
+                                artifact_row["kind"],
+                                artifact_row["revision"],
+                            ),
+                        ).fetchone()
+                    kind = ArtifactKind(artifact_row["kind"])
+                    target = self._artifact_output(
+                        job_id,
+                        artifact_row["language"],
+                        kind,
+                        artifact_row["revision"],
+                        source.suffix.lower(),
+                    )
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    if existing_artifact:
+                        recorded_hash = existing_artifact["sha256"]
+                        if recorded_hash != actual_hash:
+                            raise ValueError(f"Migrated checksum mismatch: {target}")
+                        if not target.exists():
+                            shutil.copy2(source, target)
+                        if sha256_file(target) != actual_hash:
+                            raise ValueError(f"Migration target checksum mismatch: {target}")
+                        continue
+                    if target.exists() and sha256_file(target) != actual_hash:
+                        raise ValueError(f"Migration target checksum mismatch: {target}")
+                    if not target.exists():
+                        shutil.copy2(source, target)
+                    relative = target.relative_to(self.workspace_root).as_posix()
+                    with self.connect() as conn:
+                        conn.execute(
+                            """
+                            INSERT INTO artifacts
+                            (job_id, language, kind, revision, status, path, sha256,
+                             upstream_json, metadata_json, created_at)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            """,
+                            (
+                                job_id,
+                                artifact_row["language"],
+                                artifact_row["kind"],
+                                artifact_row["revision"],
+                                artifact_row["status"],
+                                relative,
+                                actual_hash,
+                                artifact_row["upstream_json"],
+                                artifact_row["metadata_json"],
+                                artifact_row["created_at"],
+                            ),
+                        )
+                    migrated_artifacts += 1
+                self.update_project_manifest(job_id)
+        finally:
+            old.close()
+        return {
+            "jobs": migrated_jobs,
+            "artifacts": migrated_artifacts,
+            "skipped_jobs": skipped_jobs,
+        }
+
+    def update_project_manifest(self, job_id: str) -> None:
+        job = self.get_job(job_id)
+        artifacts = self.list_artifacts(job_id)
+        latest: dict[str, dict[str, Any]] = {}
+        for artifact in artifacts:
+            key = f"{artifact['language'] or 'shared'}:{artifact['kind']}"
+            latest[key] = {
+                "revision": artifact["revision"],
+                "status": artifact["status"],
+                "path": artifact["path"],
+                "sha256": artifact["sha256"],
+            }
+        payload = {
+            "schemaVersion": 2,
+            "id": job["id"],
+            "title": job["topic"],
+            "sourceUrl": job["source_url"],
+            "mode": job["mode"],
+            "languages": job["languages"],
+            "status": job["status"],
+            "directory": job["directory"],
+            "createdAt": job["created_at"],
+            "updatedAt": job["updated_at"],
+            "latestArtifacts": latest,
+        }
+        path = self.job_root(job_id) / "project.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
     def _next_revision(self, job_id: str, language: str | None, kind: ArtifactKind) -> int:
         with self.connect() as conn:
@@ -232,7 +479,7 @@ class Workspace:
         metadata: dict[str, Any] | None,
     ) -> dict[str, Any]:
         now = utc_now()
-        rel_path = path.resolve().relative_to(self.project_root).as_posix()
+        rel_path = path.resolve().relative_to(self.workspace_root).as_posix()
         with self.connect() as conn:
             conn.execute(
                 """
@@ -259,7 +506,44 @@ class Workspace:
                 (status.value, now, job_id),
             )
             row = conn.execute("SELECT * FROM artifacts WHERE id = last_insert_rowid()").fetchone()
+        self.update_project_manifest(job_id)
         return self._decode_artifact(row)
+
+    def _artifact_output(
+        self,
+        job_id: str,
+        language: str | None,
+        kind: ArtifactKind,
+        revision: int,
+        suffix: str,
+    ) -> Path:
+        job = self.get_job(job_id)
+        root = self.videos_root / job["folder_name"]
+        if kind in {ArtifactKind.RENDER, ArtifactKind.PUBLICATION}:
+            lang = language or "shared"
+            filename = f"{slugify(job['topic'])}.{lang}.r{revision}{suffix}"
+            return root / KIND_DIRECTORIES[kind] / filename
+        if kind in SHARED_KINDS:
+            directory = root / KIND_DIRECTORIES[kind]
+        else:
+            if not language:
+                raise ValueError(f"Language is required for {kind.value}")
+            directory = root / language / KIND_DIRECTORIES[kind]
+        return directory / f"{kind.value}.r{revision}{suffix}"
+
+    def _ensure_job_tree(self, job_id: str) -> None:
+        job = self.get_job(job_id)
+        root = self.videos_root / job["folder_name"]
+        for shared in ("sources", "assets", "previews", "exports"):
+            (root / shared).mkdir(parents=True, exist_ok=True)
+        for language in job["languages"]:
+            for folder in ("scripts", "audio", "transcripts", "storyboard", "subtitles"):
+                (root / language / folder).mkdir(parents=True, exist_ok=True)
+
+    @staticmethod
+    def _folder_name(job_id: str, topic: str, created_at: str) -> str:
+        date = created_at[:10] if len(created_at) >= 10 else datetime.now(UTC).date().isoformat()
+        return f"{date}_{slugify(topic)}_{job_id}"
 
     @staticmethod
     def _decode_artifact(row: sqlite3.Row) -> dict[str, Any]:

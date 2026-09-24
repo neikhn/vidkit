@@ -1,7 +1,7 @@
 # Shared handoff contract
-Contract version: 1. Reviewed: 2026-09-24.
+Contract version: 2. Reviewed: 2026-09-24.
 
-This Markdown contract describes the full target workflow. The Python runtime currently implements revisioned script, audio, transcript, timeline and render records; source and publication adapters remain planned. Sibling modules use this source rather than duplicating contracts. Resolve links relative to the file containing them.
+The Python runtime implements revisioned source, script, audio, transcript, asset manifest, storyboard, timeline and render records. Publication remains a prepared handoff until an authorized uploader is implemented. Sibling modules use this source rather than duplicating contracts.
 
 ## Common envelope
 Every stage handoff identifies the job/topic, language, artifact revision, upstream revisions, producing skill/template version where known, actual output location, check results and unresolved issues. Record actual provider/model/settings when a service is used. Never invent missing identifiers, measurements or checksums.
@@ -15,6 +15,8 @@ Distinguish prepared, generated, checked, needs-review, blocked, approved and pu
 | Script bundle | Language, stable beat IDs, clean editorial narration, expected spoken text, optional TTS input, display text mappings, claim references |
 | Audio record | Final narration file, actual duration, revision/checksum when available, model, voice ID, settings and generation provenance |
 | Transcript | Unmodified provider/export response plus normalized words with text/start/end in seconds, audio identity, language, segment boundaries and validation findings |
+| Asset manifest | Local immutable image identity, source, retrieval date, usage basis, dimensions, checksum and description |
+| Storyboard | Semantic scene purpose, layout, display text, asset ID/crop and checked transcript word anchors; no invented timestamps |
 | Timeline | Scene/beat IDs, word or phrase anchors, absolute timing, scene type, assets, display text, captions, evidence references and optional separate music/SFX |
 | Render record | Input revisions, template version, preview/export paths, format and observed visual/audio checks |
 | Publication record | Exact render and metadata revisions, destination, mode, approval if required, upload ID, processing/visibility status, schedule and result |

@@ -77,7 +77,7 @@ class ElevenLabsClient:
                 "xi-api-key": self.api_key or "",
                 "Content-Type": content_type,
                 "Accept": accept,
-                "User-Agent": "vidkit/0.1",
+                "User-Agent": "vidkit/0.2",
             },
         )
         try:

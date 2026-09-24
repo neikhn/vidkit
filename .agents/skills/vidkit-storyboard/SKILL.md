@@ -8,14 +8,16 @@ description: Turn Vidkit scripts and word-level transcripts into meaning-driven 
 Input: script, source pack, checked transcript, final audio identity and asset inventory.
 Output: timeline using the [contract](../vidkit-pipeline/references/handoff-contract.md).
 Read [visual style](references/visual-style.md) for scene design and [subtitles](references/subtitles.md) for caption grouping.
+Read the storyboard schema in [CLI workflow](../vidkit-pipeline/references/cli-workflow.md) before writing JSON.
 
 ## Workflow
 1. Reconstruct complete narrative ideas across export segment boundaries.
-2. Choose a scene for each useful explanatory beat; map it to actual word/phrase anchors and audio time.
+2. Choose a scene for each useful explanatory beat. Assign contiguous transcript `wordIndex` ranges and copy the matching anchor text; never write milliseconds.
 3. Use keywords for reveals, counters or emphasis; change scenes at meaningful transitions rather than each word.
 4. Select source footage and diagrams that actually support the claims. Label conceptual diagrams and avoid invented numerical histories.
 5. Group readable captions from the same words; share timing with scene cues.
 6. Make separate localized timelines. Research/assets can be shared, but narration duration and layout cannot be assumed identical.
+7. Import with `vidkit add-storyboard`, then run `vidkit timeline`. Missing required assets may remain for Studio preview but block export.
 
 ## Completion and missing inputs
 Complete when every timed scene/caption has valid anchors and necessary assets or explicitly unresolved dependencies. With only script, deliver an untimed storyboard; do not invent measured seconds. Missing assets or unchecked synchronization prevent a production-ready handoff.

@@ -15,6 +15,8 @@ class ArtifactKind(StrEnum):
     SCRIPT = "script"
     AUDIO = "audio"
     TRANSCRIPT = "transcript"
+    ASSET_MANIFEST = "asset-manifest"
+    STORYBOARD = "storyboard"
     TIMELINE = "timeline"
     SUBTITLE_SRT = "subtitle-srt"
     SUBTITLE_VTT = "subtitle-vtt"
