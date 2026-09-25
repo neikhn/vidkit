@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 3,
+  "language": "en",
+  "title": "Structured response",
+  "audioSrc": "",
+  "durationSeconds": 3,
+  "theme": "dark-grid",
+  "captions": [],
+  "scenes": [
+    {
+      "id": "sample",
+      "layout": "api-response",
+      "title": "Structured response",
+      "body": "choice, score, probability",
+      "startMs": 0,
+      "endMs": 3000
+    }
+  ],
+  "safeArea": {
+    "top": 88,
+    "right": 162,
+    "bottom": 260,
+    "left": 162
+  }
+}
