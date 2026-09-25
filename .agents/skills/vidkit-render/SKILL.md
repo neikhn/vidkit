@@ -1,24 +1,13 @@
 ---
 name: vidkit-render
-description: Specify or execute available Remotion rendering for Vidkit timelines and validate portrait video, audio and captions. Use for preview/export requests; does not imply a renderer is installed.
+description: Preview and export Vidkit Remotion timelines with explicit QA coverage and revision-bound approval.
 ---
-# Render
+# Vidkit render
 
-## Input and output
-Input: checked timeline, final narration, approved assets and available template/runtime.
-Output: render specification or actual preview, MP4 and SRT/VTT, clearly distinguished.
-Read the [handoff contract](../vidkit-pipeline/references/handoff-contract.md).
+Read the [CLI workflow](../vidkit-pipeline/references/cli-workflow.md) and [handoff contract](../vidkit-pipeline/references/handoff-contract.md). Confirm `vidkit doctor`, current timeline, assets, theme/component locks and final narration. The target is 1080×1920, 30 fps, H.264 and AAC.
 
-## Workflow
-1. Verify upstream revisions and unresolved findings before claiming readiness.
-2. Confirm renderer, templates, fonts and assets exist. If not, deliver an implementation-ready render brief and list dependencies; do not build software unless requested.
-3. Specify Remotion with 1080×1920, 30 fps, H.264 video and AAC audio by default. Derive duration from actual narration/timeline.
-4. Use checked templates populated with content. New template code requires review before automatic production use.
-5. When execution is available and authorized, render a preview and inspect scene transitions, text fitting, Vietnamese glyphs, subtitle sync and mobile safe areas. Listen for clipping, missing speech and music masking.
-6. Export only after checks pass; retain actual inputs, versions and findings.
-7. Use `vidkit studio` for review. Use `vidkit render` for a tracked export, or `vidkit import-render` to register a Studio export against the current timeline revision.
+Run `vidkit preview <job-id> <language>` to create a tracked MP4 under `previews/`. Inspect representative phone-sized frames for crop, Vietnamese glyphs, caption centering/line balance, hook identity and visual-claim match. Review every transition and listen through the final video if those checks are claimed. Run `vidkit qa` and record each check as pass/fail/not-run with evidence. An audio-level measurement is not listening; a few frames are not full playback.
 
-## Completion and missing inputs
-A technical export success is not visual/audio approval. Unperformed checks remain unperformed. If narration changes, return to transcript and rebuild dependent timing. If only visuals change, reuse matching audio/transcript.
+In review mode, request explicit export approval for the current timeline, preview and QA revision. Only then run `vidkit render`. Automatic mode may export when validation passes, but unperformed human checks remain not-run and candidate components remain candidates. A direct Studio export registered with `vidkit import-render` is a preview in v3, not an approval.
 
-The repository includes a Remotion composition with bundled Noto Sans, screenshot layouts and Python preview/render helpers. Run `vidkit doctor` before execution; visual and audio inspection remain explicit checks.
+An encoded MP4 is not quality acceptance. Report what was actually inspected and any screenshot alternative or other limitation. If narration changes, return to STT and rebuild timing. If only visuals or captions change, reuse the audio and transcript.
