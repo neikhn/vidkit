@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 3,
+  "language": "en",
+  "title": "light-editorial theme",
+  "audioSrc": "",
+  "durationSeconds": 3,
+  "theme": "light-editorial",
+  "captions": [],
+  "scenes": [
+    {
+      "id": "sample",
+      "layout": "brand-hook",
+      "title": "light-editorial theme",
+      "body": "Theme preview",
+      "startMs": 0,
+      "endMs": 3000
+    }
+  ],
+  "safeArea": {
+    "top": 88,
+    "right": 162,
+    "bottom": 260,
+    "left": 162
+  }
+}
