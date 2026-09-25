@@ -12,7 +12,7 @@ from .models import ArtifactKind
 from .storage import Workspace, sha256_file, slugify
 
 
-SUPPORTED_IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp"}
+IMAGE_FORMATS = {"PNG": (".png", "image/png"), "JPEG": (".jpg", "image/jpeg"), "WEBP": (".webp", "image/webp")}
 
 
 def load_asset_manifest(workspace: Workspace, job_id: str) -> tuple[dict[str, Any], dict[str, Any] | None]:
@@ -30,14 +30,12 @@ def prepare_asset_entry(
     description: str,
     usage_basis: str,
     source_url: str | None,
+    evidence_type: str = "artwork",
 ) -> tuple[dict[str, Any], Path]:
     source = source.resolve()
     if not source.is_file():
         raise FileNotFoundError(source)
-    suffix = source.suffix.lower()
-    if suffix not in SUPPORTED_IMAGE_SUFFIXES:
-        raise ValueError("Asset must be a PNG, JPEG or WebP image")
-    width, height = image_dimensions(source)
+    width, height, suffix, mime = detect_image(source)
     checksum = sha256_file(source)
     asset_id = f"{slugify(description or source.stem, 30)}-{checksum[:8]}"
     target = workspace.asset_dir(job_id) / f"{asset_id}{suffix}"
@@ -49,6 +47,9 @@ def prepare_asset_entry(
             "retrievedAt": datetime.now(UTC).isoformat(),
             "usageBasis": usage_basis.strip(),
             "description": unicodedata.normalize("NFC", description.strip()),
+            "evidenceType": evidence_type,
+            "mime": mime,
+            "originalFilename": source.name,
             "width": width,
             "height": height,
             "sha256": checksum,
@@ -59,6 +60,11 @@ def prepare_asset_entry(
 
 
 def image_dimensions(path: Path) -> tuple[int, int]:
+    width, height, _, _ = detect_image(path)
+    return width, height
+
+
+def detect_image(path: Path) -> tuple[int, int, str, str]:
     try:
         with Image.open(path) as image:
             width, height = image.size
@@ -66,9 +72,10 @@ def image_dimensions(path: Path) -> tuple[int, int]:
             image.verify()
     except (UnidentifiedImageError, OSError, SyntaxError) as exc:
         raise ValueError(f"Unsupported or corrupt image: {path}") from exc
-    if detected not in {"PNG", "JPEG", "WEBP"} or width <= 0 or height <= 0:
+    if detected not in IMAGE_FORMATS or width <= 0 or height <= 0:
         raise ValueError(f"Unsupported or corrupt image: {path}")
-    return width, height
+    suffix, mime = IMAGE_FORMATS[detected]
+    return width, height, suffix, mime
 
 
 def _resolution_warnings(width: int, height: int) -> list[str]:
