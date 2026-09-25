@@ -1,85 +1,100 @@
 # Vidkit CLI workflow
 
-Runtime contract version: 2. Workspace paths are relative to `workspace/`. Inspect state with `vidkit show <job-id>` and choose the next action with `vidkit next <job-id> --language vi --json`.
+Runtime contract v3. Workspace paths are relative to `workspace/`. New jobs use v3; existing jobs remain v2. Run `vidkit next <job-id> --language vi --json` for the next missing or blocked stage. `vidkit show` lists revisions and checksums.
 
-## Agent handoffs
+## Production sequence
 
-1. Create a job with `vidkit create "Title" --languages vi,en --source-url <url>`.
-2. Import research with `vidkit add-source <job-id> source-pack.json`.
-3. Import localized scripts, then generate the configured narration and transcript.
-4. Generate final narration and word-level transcript.
-5. Add local images with `vidkit add-asset`. Record `assetId` values.
-6. Write one storyboard per language using normalized transcript word indexes.
-7. Run `vidkit timeline`, `vidkit studio`, revise, then `vidkit render` when the review version is ready.
+```powershell
+vidkit create "Product" --languages vi --mode review --source-url https://example.com
+vidkit add-source <id> source-pack.json
+vidkit add-script <id> vi script.json
+vidkit add-brief <id> vi brief.json
+vidkit approve <id> vi concept --reviewer "Name"
+vidkit tts <id> vi
+vidkit transcribe <id> vi
+vidkit add-asset <id> official.png --type artwork --description "Product artwork" --usage-basis "official media" --source-url https://example.com/media
+vidkit add-caption-plan <id> vi captions.json
+vidkit add-storyboard <id> vi storyboard.json
+vidkit timeline <id> vi
+vidkit preview <id> vi
+vidkit qa <id> vi
+vidkit approve <id> vi export --reviewer "Name"
+vidkit render <id> vi
+```
 
-Use `vidkit timeline --draft` only for a technical pipeline test. Its evenly divided scenes are not editorial output.
+Caption plan is optional; Python creates a semantic fallback. `tts` and `transcribe` call ElevenLabs and can incur cost. `studio` is interactive; `import-render` records its MP4 as a preview in v3. `timeline --draft` is only a technical test.
 
-## Source pack
+## Source and brief
 
-The top-level object requires a non-empty `claims` list. Each claim requires `id`, `statement`, `sourceUrl`, `publishedAt`, `retrievedAt` and `uncertainty`; use `null` for an unavailable publication date or uncertainty only when the absence itself is explicit. IDs must be unique. Store visual candidates separately from selected local assets.
+Source pack has non-empty `claims` with unique `id`, `statement`, `sourceUrl`, `publishedAt` (nullable), `retrievedAt`, and `uncertainty` (nullable). Visual descriptions must be checked against the actual asset.
+
+Creative brief example:
 
 ```json
 {
-  "claims": [
-    {
-      "id": "claim-1",
-      "statement": "The product supports feature X.",
-      "sourceUrl": "https://example.com/docs",
-      "publishedAt": null,
-      "retrievedAt": "2026-09-24",
-      "uncertainty": "Official documentation; availability may vary by plan."
-    }
-  ],
-  "visualCandidates": []
+  "angle": "Show the product decision path",
+  "theme": "dark-grid",
+  "hook": "What does the tool return?",
+  "visualStrategy": "One API response and one diagram, each tied to a claim",
+  "screenshotUnavailable": true,
+  "screenshotAlternative": {
+    "type": "api-example",
+    "sourceUrl": "https://example.com/docs",
+    "reason": "The console requires login"
+  },
+  "frames": {
+    "hook": {"headline": "A useful product hook", "visualNote": "Brand name with generic explanatory graphic"},
+    "evidence": {"headline": "The API response", "visualNote": "Enlarge the verified response fields"},
+    "takeaway": {"headline": "The practical limit", "visualNote": "One conclusion with supporting source"}
+  }
 }
 ```
 
-## Asset command
+`add-brief` renders three 1080×1920 sample PNGs before audio. A frame may use `imagePath` instead of `visualNote`. The concept approval is tied to the current script and brief checksums. Changing either requires new concept approval before paid narration in review mode.
 
-```powershell
-vidkit add-asset <job-id> screenshot.png `
-  --description "Dashboard showing the editor" `
-  --usage-basis "official product media" `
-  --source-url "https://example.com/product"
-```
-
-The command validates PNG/JPEG/WebP dimensions, copies the file into the job, calculates a checksum and returns the `assetId`.
-
-## Storyboard schema
+## Caption plan
 
 ```json
 {
-  "schemaVersion": 1,
+  "groups": [
+    {"startWord": 0, "endWord": 5},
+    {"startWord": 6, "endWord": 11}
+  ]
+}
+```
+
+Groups partition all normalized transcript words, with no gap, repeat or reordering. For condensed numeric display, a group may include `displayTokens`: `{"text":"$0.042","startWord":6,"endWord":11,"spokenText":"zero point zero four two dollars"}`. Exact transcript wording is validated.
+
+## Storyboard
+
+Use `schemaVersion: 3`, `language`, `theme`, and non-empty `scenes`. Each scene requires `id`, `layout`, `title`, `startAnchor.wordIndex`, and `endAnchor.wordIndex`. Word ranges partition the full transcript. Layouts: `brand-hook`, `screenshot-focus`, `api-response`, `diagram-flow`, `metric-breakdown`, `takeaway`. Optional fields: `component`, `componentVersion`, `purpose`, `body`, `claimIds`, `assetId`, `assetRequired`, `crop`, `callout`, and `motion.cues`.
+
+```json
+{
+  "schemaVersion": 3,
   "language": "vi",
+  "theme": "dark-grid",
   "scenes": [
     {
       "id": "hook",
-      "purpose": "Establish the promise",
-      "layout": "hook",
-      "title": "Một cách dựng video nhanh hơn",
-      "body": "",
-      "startAnchor": {"wordIndex": 0, "text": "Bạn"},
-      "endAnchor": {"wordIndex": 11, "text": "không?"}
-    },
-    {
-      "id": "demo",
-      "purpose": "Show the actual interface",
-      "layout": "screenshot",
-      "title": "Chọn mẫu và nhập nội dung",
-      "body": "",
-      "assetId": "dashboard-1234abcd",
-      "assetRequired": true,
-      "crop": {"x": 0.05, "y": 0.1, "width": 0.8, "height": 0.7},
-      "callout": {"text": "Bắt đầu tại đây", "x": 0.12, "y": 0.78},
-      "startAnchor": {"wordIndex": 12, "text": "Đầu"},
-      "endAnchor": {"wordIndex": 30, "text": "video."}
+      "layout": "brand-hook",
+      "title": "Tên sản phẩm và lời hứa",
+      "body": "Một vấn đề rõ ràng",
+      "claimIds": ["claim-1"],
+      "assetId": "official-artwork-12345678",
+      "assetRequired": false,
+      "startAnchor": {"wordIndex": 0},
+      "endAnchor": {"wordIndex": 11},
+      "motion": {"cues": [{"type": "zoom", "wordIndex": 5}]}
     }
   ]
 }
 ```
 
-Allowed layouts are `hook`, `screenshot`, `steps` and `takeaway`. Scene word ranges must partition the complete transcript: first index `0`, no overlap/gaps, and the final index equals the last word. Crop coordinates are normalized from 0 to 1. Python validates anchor text and derives all timing.
+The example shows one scene shape; a real storyboard must cover the last word. Crop is `{x,y,width,height}` normalized against the original image, with no region outside it. Python resolves all word anchors and motion cue timestamps. A referenced component/theme must exist in the library; candidate components are allowed in automatic jobs but not promoted by export.
 
-## Review boundaries
+## Library and QA
 
-Studio may show placeholders for missing required images. `vidkit render` blocks those timelines. In automatic mode, export also blocks until timeline status is checked or approved. A successful encode remains `needs-review` until the actual MP4 is inspected.
+`vidkit library search/show/preview/add/approve` operates on manifests. After `library add`, run `library preview <candidate-id>` before using or approving it; a manifest or fixture edit requires another preview. A candidate component fixture must show its tested `baseComponent`; a candidate theme fixture must use the theme ID and exact style tokens. A novel React primitive requires implementation and tests. Approved entries and fixtures are Git-versioned under `renderer/library/`; candidates are under ignored `workspace/library/`.
+
+`vidkit qa` writes a report with `automatic`, `mediaProbe`, `frameInspection`, `transitionReview`, `fullPlayback`, and `audioListening`. Each is `pass`, `fail`, or `not-run` with evidence. A review file passed to `vidkit qa <id> vi <file>` supplies the last four checks. An export approval is tied to the current timeline, preview and QA revisions. `render` in review mode requires that explicit approval. Automatic export still blocks on validation failure and never claims that unperformed viewing/listening occurred.
