@@ -1,7 +1,7 @@
 {
   "name": "vidkit-renderer",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "scripts": {
     "studio": "remotion studio src/index.ts",
     "build": "remotion compositions src/index.ts"
@@ -10,9 +10,11 @@
     "@fontsource/noto-sans": "5.2.10",
     "@remotion/cli": "4.0.528",
     "@remotion/media": "4.0.528",
+    "culori": "4.0.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "remotion": "4.0.528"
+    "remotion": "4.0.528",
+    "remotion-bits": "0.2.1"
   },
   "devDependencies": {
     "@types/react": "^19.0.0",
