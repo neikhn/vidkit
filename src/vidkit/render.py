@@ -8,7 +8,8 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
-from .storage import Workspace
+from .storage import Workspace, sha256_file
+from .runtime import resolve_node
 
 
 class RenderDependencyError(RuntimeError):
@@ -16,10 +17,10 @@ class RenderDependencyError(RuntimeError):
 
 
 def remotion_command(project_root: Path) -> list[str]:
-    node = shutil.which("node.exe") or shutil.which("node")
+    node = resolve_node()
     cli = project_root / "renderer" / "node_modules" / "@remotion" / "cli" / "remotion-cli.js"
     if node and cli.is_file():
-        return [node, str(cli)]
+        return [str(node), str(cli)]
     npx = shutil.which("npx.cmd") or shutil.which("npx")
     if npx:
         return [npx, "remotion"]
@@ -51,6 +52,8 @@ def prepare_renderer_job(
             scene["asset"] = None
             scene["status"] = "blocked"
             continue
+        if asset.get("sha256") and sha256_file(source) != asset["sha256"]:
+            raise RenderDependencyError(f"Asset checksum mismatch: {asset.get('id', source.name)}")
         assets_dir.mkdir(parents=True, exist_ok=True)
         target = assets_dir / source.name
         shutil.copy2(source, target)
