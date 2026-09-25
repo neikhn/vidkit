@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 3,
+  "language": "en",
+  "title": "A new way to build",
+  "audioSrc": "",
+  "durationSeconds": 3,
+  "theme": "dark-grid",
+  "captions": [],
+  "scenes": [
+    {
+      "id": "sample",
+      "layout": "brand-hook",
+      "title": "A new way to build",
+      "body": "Product introduction",
+      "startMs": 0,
+      "endMs": 3000
+    }
+  ],
+  "safeArea": {
+    "top": 88,
+    "right": 162,
+    "bottom": 260,
+    "left": 162
+  }
+}
