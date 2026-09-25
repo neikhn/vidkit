@@ -36,7 +36,7 @@ class CliWorkflowTests(unittest.TestCase):
             root = Path(directory)
             output = StringIO()
             with redirect_stdout(output):
-                self.assertEqual(main(["--root", str(root), "create", "AI demo", "--languages", "vi"]), 0)
+                self.assertEqual(main(["--root", str(root), "create", "AI demo", "--languages", "vi", "--workflow-version", "2"]), 0)
             job_id = output.getvalue().strip()
 
             script_path = root / "script.json"
