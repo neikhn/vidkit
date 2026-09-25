@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 3,
+  "language": "en",
+  "title": "70 ms response",
+  "audioSrc": "",
+  "durationSeconds": 3,
+  "theme": "dark-grid",
+  "captions": [],
+  "scenes": [
+    {
+      "id": "sample",
+      "layout": "metric-breakdown",
+      "title": "70 ms response",
+      "body": "Source-backed metric",
+      "startMs": 0,
+      "endMs": 3000
+    }
+  ],
+  "safeArea": {
+    "top": 88,
+    "right": 162,
+    "bottom": 260,
+    "left": 162
+  }
+}
