@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 3,
+  "language": "en",
+  "title": "What to remember",
+  "audioSrc": "",
+  "durationSeconds": 3,
+  "theme": "dark-grid",
+  "captions": [],
+  "scenes": [
+    {
+      "id": "sample",
+      "layout": "takeaway",
+      "title": "What to remember",
+      "body": "One clear conclusion",
+      "startMs": 0,
+      "endMs": 3000
+    }
+  ],
+  "safeArea": {
+    "top": 88,
+    "right": 162,
+    "bottom": 260,
+    "left": 162
+  }
+}
