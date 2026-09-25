@@ -1,43 +1,37 @@
 # Shared handoff contract
-Contract version: 2. Reviewed: 2026-09-24.
+Contract version: 3. Reviewed: 2026-09-25.
 
-The Python runtime implements revisioned source, script, audio, transcript, asset manifest, storyboard, timeline and render records. Publication remains a prepared handoff until an authorized uploader is implemented. Sibling modules use this source rather than duplicating contracts.
+The Python CLI stores immutable artifact revisions and checksums in SQLite, with readable files under ignored `workspace/videos/`. Existing workflow v2 jobs remain readable; new jobs use v3. Agents use the CLI, never direct SQLite writes. Publishing remains a prepared handoff; no uploader or scheduler is implemented.
 
-## Common envelope
-Every stage handoff identifies the job/topic, language, artifact revision, upstream revisions, producing skill/template version where known, actual output location, check results and unresolved issues. Record actual provider/model/settings when a service is used. Never invent missing identifiers, measurements or checksums.
-
-Distinguish prepared, generated, checked, needs-review, blocked, approved and published. A prepared prompt is not generated audio; a render specification is not an MP4; an upload is not proof of public availability.
+Every handoff identifies job ID, language, revision, checksum, upstream revisions, actual path, producing provider/model or component/theme version, completed checks, and unresolved issues. Prepared, generated, checked, needs-review, blocked, approved, published and invalidated are distinct states. Never claim an unperformed API call, visual inspection, listening pass or upload.
 
 ## Artifacts
-| Artifact | Required content |
+
+| Artifact | Key content |
 |---|---|
-| Source pack | Claim IDs, supporting excerpts/URLs, publication and retrieval dates, uncertainty, asset origin and usage basis |
-| Script bundle | Language, stable beat IDs, clean editorial narration, expected spoken text, optional TTS input, display text mappings, claim references |
-| Audio record | Final narration file, actual duration, revision/checksum when available, model, voice ID, settings and generation provenance |
-| Transcript | Unmodified provider/export response plus normalized words with text/start/end in seconds, audio identity, language, segment boundaries and validation findings |
-| Asset manifest | Local immutable image identity, source, retrieval date, usage basis, dimensions, checksum and description |
-| Storyboard | Semantic scene purpose, layout, display text, asset ID/crop and checked transcript word anchors; no invented timestamps |
-| Timeline | Scene/beat IDs, word or phrase anchors, absolute timing, scene type, assets, display text, captions, evidence references and optional separate music/SFX |
-| Render record | Input revisions, template version, preview/export paths, format and observed visual/audio checks |
-| Publication record | Exact render and metadata revisions, destination, mode, approval if required, upload ID, processing/visibility status, schedule and result |
+| Source | Claim IDs, statements, URLs, dates, uncertainty and visual candidates |
+| Script | Editorial text, expected spoken text, Eleven v3 TTS input and claim mapping |
+| Creative brief | Angle, theme, hook, visual strategy, sourced screenshot substitute when needed, and three sample frame PNGs |
+| Concept approval | Reviewer, time, exact script and brief revisions/checksums |
+| Audio | Final MP3 or imported audio, voice/model/settings and checksum |
+| Transcript | Raw provider response and normalized word timing tied to audio checksum, plus validation findings |
+| Assets | Local checksum, actual MIME/extension, evidence type, dimensions, source, date, usage basis and description |
+| Caption plan | Optional contiguous word-index groups and verified display-token mapping |
+| Storyboard | Semantic scene purpose, component ID/version, theme, claim IDs, asset ID, source-image crop, word anchors and motion cues |
+| Timeline | Derived scene/caption timings, component/theme locks, claim-to-scene mapping and validation findings |
+| Preview | Actual MP4 for the current timeline |
+| QA | Automatic checks, media probe, frame inspection, transition review, full playback and audio listening, each pass/fail/not-run with evidence |
+| Export approval | Reviewer, time, exact timeline, preview and QA revisions/checksums |
+| Render | Actual export path, input revisions, component/theme locks, claim-to-scene mapping and QA reference |
 
-Scene and caption timing derive from the final audio's transcript. Preserve mappings between editorial text, pronunciation-expanded spoken text and display text. Retain raw data when corrections are made.
+Eleven v3 narration → final audio → ElevenLabs STT word-level is the default. Word timing drives scenes, captions and subtitle highlighting; it does not measure music beats. SRT/VTT share cue groups and timing but have no animated styling.
 
-## Invalidation and reuse
-- Changed evidence invalidates affected claims/scripts and dependent outputs.
-- Changed spoken content, pronunciation, voice or TTS settings invalidates audio and downstream artifacts.
-- Replacing, trimming, joining or retiming audio invalidates transcript and timed downstream artifacts; transcribe the final audio again for this workflow.
-- Caption-only or visual edits invalidate affected timeline/render/publication approval, not unchanged audio or transcription.
-- Metadata-only edits invalidate approval of the publication package, not the render.
-- Keep earlier revisions for comparison. Reuse only artifacts whose upstream inputs remain unchanged.
-- If one language changes, invalidate that language only, unless shared facts/assets also changed.
+## Revisions and gates
 
-## Modes and failure handling
-Review mode requires explicit approval of the exact publication package. Automatic mode uses the user's configured publishing authorization and destination; it does not waive checks. Unresolved source, transcript, asset or render issues go to review. Mode selection is not permission to install tools, create accounts or broaden destinations.
+Changing a script invalidates concept approval and spoken downstream work. Changing brief/theme requires new concept approval but preserves audio if spoken text is unchanged. Changing audio invalidates transcript and timed outputs. Changing visual, caption plan, component or storyboard invalidates timeline, preview, QA and export approval while preserving unchanged audio/transcript. Only exact current approval records unlock their gates. “Continue” is never approval.
 
-Do not blindly repeat an uncertain API request. For an uncertain upload, reconcile existing upload state before another upload.
+Review mode stops at concept and export approvals. Automatic mode skips those waits but still blocks on failed source, transcript, asset, timeline, media or render validation. Library candidate promotion is independent from video approval; automatic mode never promotes candidates.
 
-Technical checks and content checks are distinct. An LLM saying “looks good” cannot substitute for measuring timestamps or inspecting a rendered file. When automation code is absent, mark checks not run rather than claiming automated validation.
+A missing product screenshot is not automatically blocking. Use a sourced official artwork, API example, chart or clear diagram where appropriate, label its true evidence type and note the limitation in brief and QA. Never present a replacement as an actual console screenshot.
 
-## Maintenance
-Store skills with the project; record revisions using repository revision when available or an explicit document version. Test changed guidance against representative artifacts before automatic use. Keep provider-specific details in the relevant reference with official URLs and verification dates. Recheck them when compatibility changes or a documented behavior fails.
+Do not repeat an uncertain paid TTS/STT request. If a check cannot run, record `not-run`; audio-level analysis does not count as listening, and frame sampling does not count as full playback.
