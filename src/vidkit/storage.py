@@ -20,12 +20,17 @@ KIND_DIRECTORIES = {
     ArtifactKind.SOURCE: "sources",
     ArtifactKind.ASSET_MANIFEST: "assets",
     ArtifactKind.SCRIPT: "scripts",
+    ArtifactKind.BRIEF: "briefs",
     ArtifactKind.AUDIO: "audio",
     ArtifactKind.TRANSCRIPT: "transcripts",
     ArtifactKind.STORYBOARD: "storyboard",
+    ArtifactKind.CAPTION_PLAN: "subtitles",
     ArtifactKind.TIMELINE: "storyboard",
     ArtifactKind.SUBTITLE_SRT: "subtitles",
     ArtifactKind.SUBTITLE_VTT: "subtitles",
+    ArtifactKind.PREVIEW: "previews",
+    ArtifactKind.QA_REPORT: "qa",
+    ArtifactKind.APPROVAL: "approvals",
     ArtifactKind.RENDER: "exports",
     ArtifactKind.PUBLICATION: "exports",
 }
@@ -100,9 +105,12 @@ class Workspace:
                   key TEXT PRIMARY KEY,
                   value TEXT NOT NULL
                 );
-                INSERT OR REPLACE INTO workspace_meta(key, value) VALUES ('schema_version', '2');
+                INSERT OR REPLACE INTO workspace_meta(key, value) VALUES ('schema_version', '3');
                 """
             )
+            columns = {row["name"] for row in conn.execute("PRAGMA table_info(jobs)")}
+            if "workflow_version" not in columns:
+                conn.execute("ALTER TABLE jobs ADD COLUMN workflow_version INTEGER NOT NULL DEFAULT 2")
 
     @contextmanager
     def connect(self) -> Iterator[sqlite3.Connection]:
@@ -122,6 +130,7 @@ class Workspace:
         languages: Iterable[str],
         mode: Mode = Mode.REVIEW,
         source_url: str | None = None,
+        workflow_version: int = 3,
     ) -> str:
         self.initialize()
         job_id = uuid.uuid4().hex[:12]
@@ -132,7 +141,7 @@ class Workspace:
         folder_name = self._folder_name(job_id, topic, now)
         with self.connect() as conn:
             conn.execute(
-                "INSERT INTO jobs VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO jobs (id, topic, source_url, mode, languages_json, status, folder_name, created_at, updated_at, workflow_version) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     job_id,
                     topic,
@@ -143,6 +152,7 @@ class Workspace:
                     folder_name,
                     now,
                     now,
+                    workflow_version,
                 ),
             )
         self._ensure_job_tree(job_id)
@@ -280,8 +290,14 @@ class Workspace:
         )
 
     def invalidate_downstream(self, job_id: str, language: str, changed_kind: ArtifactKind) -> None:
-        index = STAGE_ORDER.index(changed_kind.value)
-        downstream = STAGE_ORDER[index + 1 :]
+        if changed_kind in {ArtifactKind.BRIEF, ArtifactKind.CAPTION_PLAN, ArtifactKind.STORYBOARD}:
+            downstream = [kind.value for kind in (
+                ArtifactKind.TIMELINE, ArtifactKind.SUBTITLE_SRT, ArtifactKind.SUBTITLE_VTT,
+                ArtifactKind.PREVIEW, ArtifactKind.QA_REPORT, ArtifactKind.RENDER,
+            )]
+        else:
+            index = STAGE_ORDER.index(changed_kind.value)
+            downstream = [kind for kind in STAGE_ORDER[index + 1 :] if kind != ArtifactKind.APPROVAL.value]
         if not downstream:
             return
         placeholders = ",".join("?" for _ in downstream)
@@ -295,6 +311,22 @@ class Workspace:
                 (job_id, language, *downstream),
             )
             conn.execute("UPDATE jobs SET updated_at = ? WHERE id = ?", (utc_now(), job_id))
+            if changed_kind in {ArtifactKind.SOURCE, ArtifactKind.SCRIPT, ArtifactKind.BRIEF}:
+                approval_stages = ("concept", "export")
+            elif changed_kind in {ArtifactKind.AUDIO, ArtifactKind.TRANSCRIPT,
+                                  ArtifactKind.ASSET_MANIFEST, ArtifactKind.STORYBOARD,
+                                  ArtifactKind.CAPTION_PLAN, ArtifactKind.TIMELINE,
+                                  ArtifactKind.PREVIEW, ArtifactKind.QA_REPORT}:
+                approval_stages = ("export",)
+            else:
+                approval_stages = ()
+            if approval_stages:
+                stage_placeholders = ",".join("?" for _ in approval_stages)
+                conn.execute(
+                    "UPDATE artifacts SET status = 'invalidated' WHERE job_id = ? AND language IS ? "
+                    f"AND kind = 'approval' AND json_extract(metadata_json, '$.stage') IN ({stage_placeholders})",
+                    (job_id, language, *approval_stages),
+                )
         self.update_project_manifest(job_id)
 
     def invalidate_visuals(self, job_id: str) -> None:
@@ -303,6 +335,8 @@ class Workspace:
             ArtifactKind.SUBTITLE_SRT.value,
             ArtifactKind.SUBTITLE_VTT.value,
             ArtifactKind.RENDER.value,
+            ArtifactKind.PREVIEW.value,
+            ArtifactKind.QA_REPORT.value,
             ArtifactKind.PUBLICATION.value,
         ]
         placeholders = ",".join("?" for _ in kinds)
@@ -313,6 +347,11 @@ class Workspace:
                 (job_id, *kinds),
             )
             conn.execute("UPDATE jobs SET updated_at = ? WHERE id = ?", (utc_now(), job_id))
+            conn.execute(
+                "UPDATE artifacts SET status = 'invalidated' WHERE job_id = ? AND kind = 'approval' "
+                "AND json_extract(metadata_json, '$.stage') = 'export'",
+                (job_id,),
+            )
         self.update_project_manifest(job_id)
 
     def migrate_legacy(self) -> dict[str, int]:
@@ -337,7 +376,7 @@ class Workspace:
                     folder_name = self._folder_name(job_id, row["topic"], row["created_at"])
                     with self.connect() as conn:
                         conn.execute(
-                            "INSERT INTO jobs VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                            "INSERT INTO jobs (id, topic, source_url, mode, languages_json, status, folder_name, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                             (
                                 job_id,
                                 row["topic"],
@@ -447,6 +486,7 @@ class Workspace:
             "title": job["topic"],
             "sourceUrl": job["source_url"],
             "mode": job["mode"],
+            "workflowVersion": job["workflow_version"],
             "languages": job["languages"],
             "status": job["status"],
             "directory": job["directory"],
@@ -519,7 +559,7 @@ class Workspace:
     ) -> Path:
         job = self.get_job(job_id)
         root = self.videos_root / job["folder_name"]
-        if kind in {ArtifactKind.RENDER, ArtifactKind.PUBLICATION}:
+        if kind in {ArtifactKind.RENDER, ArtifactKind.PUBLICATION, ArtifactKind.PREVIEW}:
             lang = language or "shared"
             filename = f"{slugify(job['topic'])}.{lang}.r{revision}{suffix}"
             return root / KIND_DIRECTORIES[kind] / filename
@@ -537,7 +577,7 @@ class Workspace:
         for shared in ("sources", "assets", "previews", "exports"):
             (root / shared).mkdir(parents=True, exist_ok=True)
         for language in job["languages"]:
-            for folder in ("scripts", "audio", "transcripts", "storyboard", "subtitles"):
+            for folder in ("scripts", "briefs", "audio", "transcripts", "storyboard", "subtitles", "qa", "approvals"):
                 (root / language / folder).mkdir(parents=True, exist_ok=True)
 
     @staticmethod
