@@ -1,103 +1,89 @@
 # Vidkit
 
-Vidkit is a local-first workflow for producing short-form product videos with Python, ElevenLabs, and Remotion.
-
-```text
-source -> script -> Eleven v3 narration -> word-level transcript
-       -> local assets -> storyboard -> preview -> export
-```
-
-Python manages project state and validates inputs. Agents research, write, select visuals, and prepare storyboards. Remotion previews and renders the validated timeline.
+Vidkit produces short product explainers from researched sources. An agent handles editorial work; Python tracks revisions and validates handoffs; ElevenLabs supplies narration and word-level transcription; Remotion renders a 1080×1920 video.
 
 ## Setup
 
-Requirements: Python 3.11+, Node.js LTS, and npm.
+Requires Python 3.11+, Node.js, and npm.
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -e .
-
 cd renderer
 npm install
 cd ..
-
-vidkit init
 vidkit doctor
 ```
 
-Create `.env` from `.env.example`:
+Set `ELEVENLABS_API_KEY` and `VIDKIT_VOICE_VI` / `VIDKIT_VOICE_EN` in a local `.env`. Paid ElevenLabs calls occur only when you run `tts` or `transcribe`.
 
-```dotenv
-ELEVENLABS_API_KEY=your-key
-VIDKIT_VOICE_VI=your-vietnamese-voice-id
-VIDKIT_VOICE_EN=your-english-voice-id
-```
+## Produce a video
 
-## Agent workflow
-
-Codex can run the complete workflow from the skills stored in `.agents/skills/`.
-
-Example prompt:
-
-> Use vidkit-pipeline to create a Vietnamese product video from this URL. Use real product screenshots and stop at the Remotion preview for review.
-
-The agent should inspect the environment and job state first:
+Create a job. New jobs use workflow v3 and default to `review`; existing jobs keep their original workflow.
 
 ```powershell
-vidkit doctor
-vidkit list
+vidkit create "Product name" --languages vi --source-url https://example.com
 vidkit next <job-id> --language vi --json
 ```
 
-## CLI workflow
-
-Create a video project:
+Ask Codex or Antigravity to use `vidkit-pipeline` with the job ID. The agent researches claims, writes the script and creative brief, proposes a theme, and creates three concept frames before narration. If a product screenshot is unavailable, it may use sourced official artwork, an API example, or an explanatory diagram. The brief and QA must identify the substitute accurately.
 
 ```powershell
-vidkit create "Product name" --languages vi --source-url https://example.com/product
-```
-
-The command returns a job ID. Use that ID for the remaining steps:
-
-```powershell
-vidkit add-source <job-id> .\source-pack.json
-vidkit add-script <job-id> vi .\script-vi.json
+vidkit add-source <job-id> source-pack.json
+vidkit add-script <job-id> vi script-vi.json
+vidkit add-brief <job-id> vi brief-vi.json
+vidkit approve <job-id> vi concept --reviewer "Your name"
 vidkit tts <job-id> vi
 vidkit transcribe <job-id> vi
-
-vidkit add-asset <job-id> .\screenshot.png `
-  --description "Product dashboard" `
-  --usage-basis "official product media" `
-  --source-url https://example.com/product
-
-vidkit add-storyboard <job-id> vi .\storyboard-vi.json
+vidkit add-asset <job-id> image.png --type artwork --description "Official product artwork" --usage-basis "official media" --source-url https://example.com/media
+vidkit add-storyboard <job-id> vi storyboard-vi.json
 vidkit timeline <job-id> vi
-vidkit studio <job-id> vi
+vidkit preview <job-id> vi
+vidkit qa <job-id> vi
+```
+
+Inspect the MP4 in the video's `previews/` directory. The QA report distinguishes automated validation, media probing, frame inspection, transition review, full playback, and audio listening. Unperformed checks are marked `not-run`. To record inspection, supply a QA JSON file to `vidkit qa <job-id> vi qa-review.json` with `checks.frameInspection`, `checks.transitionReview`, `checks.fullPlayback`, and `checks.audioListening`; each has `status` (`pass`, `fail`, or `not-run`) and an `evidence` list. A passing check needs evidence.
+
+```powershell
+vidkit approve <job-id> vi export --reviewer "Your name"
 vidkit render <job-id> vi
 ```
 
-`vidkit studio` opens the review preview. `vidkit render` writes the tracked MP4 to the video's `exports/` directory. If a video is exported manually from Remotion Studio, register it with:
+`render` writes the tracked MP4 to `exports/`. Approval is bound to the current script/brief or timeline/preview/QA checksum. A generic “continue” does not approve either gate. In `automatic` mode the video gates do not wait, but validation failures still block export, and new library candidates stay candidates. A successful encode alone does not mean full playback and audio have been reviewed.
+
+## Captions and visuals
+
+Captions use the final STT word timing. Automatic grouping considers pauses, punctuation, phrase endings and measured Noto Sans width. An optional `add-caption-plan` JSON selects explicit contiguous `startWord` / `endWord` groups. A group may include `displayTokens` with `text`, `startWord`, `endWord`, and exact `spokenText` to display a number or unit without losing its spoken-word mapping. The same cues feed burned-in captions and SRT/VTT.
+
+The built-in themes are `dark-grid`, `dark-contours`, and `light-editorial`. Scene layouts are `brand-hook`, `screenshot-focus`, `api-response`, `diagram-flow`, `metric-breakdown`, and `takeaway`. Storyboard word anchors determine scene and motion timing; crop coordinates refer to the original image.
 
 ```powershell
-vidkit import-render <job-id> vi <path-to-mp4>
+vidkit library search "api" --kind component
+vidkit library show api-response
+vidkit library preview api-response
+vidkit library search "bits" --kind bit
+vidkit library preview bit-chat-conversation
+vidkit library add candidate.json
+vidkit library preview candidate-id
+vidkit library approve candidate-id --reviewer "Your name"
 ```
 
-## Project management
+Approved built-ins live in `renderer/library/`. Candidate manifests and assets live in the ignored `workspace/library/`. Candidate components are declarative variants of a tested base component; a new React primitive requires a code change and tests. Video approval and promotion to the shared library are separate choices.
+The candidate fixture must exercise its base component. A theme fixture must include the candidate theme ID and its exact `themeData` tokens. Render `library preview` again after editing a candidate manifest or fixture.
+`library approve` copies a checked component or theme manifest and fixture into `renderer/library/approved/`; no manual drag is needed. The command prints both destination paths. Shared image assets remain in `workspace/library/assets/` because their source and usage rights can be specific to a job. Commit the approved files if they should be shared through Git.
 
-Production data is stored under `workspace/`, which is excluded from Git. Each video has a readable directory name containing its creation date, title slug, and stable ID.
+The library includes 23 requested [Remotion Bits](https://remotion-bits.dev/docs/getting-started/) examples in `renderer/library/bits.json`. `library preview <bit-id>` renders the original packaged example to `workspace/library/previews/`; `library show` gives its source path in the pinned package. They are marked `example` because their sample text, data, layout and aspect ratio need adaptation before production use. They cannot be selected directly as Vidkit storyboard components. The already integrated `AnimatedText`, `AnimatedCounter` and `GradientTransition` effects remain usable in Vidkit scenes. Provenance is recorded in [renderer/library/THIRD_PARTY.md](renderer/library/THIRD_PARTY.md).
+
+## Find and resume work
 
 ```powershell
 vidkit list
 vidkit show <job-id>
 vidkit open <job-id>
-vidkit rename <job-id> "New title"
 vidkit next <job-id> --language vi --json
 ```
 
-Changing visuals or the storyboard reuses existing narration and transcription. Replacing the audio invalidates the transcript, timeline, subtitles, and renders. Missing required images remain visible as placeholders in Studio and block final export.
+Job files are under ignored `workspace/videos/<date>_<title>_<id>/`. Editing visuals or captions reuses matching narration and transcript. Replacing audio invalidates transcript-based timing. `vidkit studio` opens an interactive preview; a direct Studio export can be registered with `vidkit import-render`, which records it as a preview in v3 and does not grant approval.
 
-## References
-
-- Agent CLI contract and storyboard schema: `.agents/skills/vidkit-pipeline/references/cli-workflow.md`
-- Antigravity usage: `docs/antigravity.md`
+Agent JSON contracts and examples: [.agents/skills/vidkit-pipeline/references/cli-workflow.md](.agents/skills/vidkit-pipeline/references/cli-workflow.md). Antigravity guidance: [docs/antigravity.md](docs/antigravity.md).
