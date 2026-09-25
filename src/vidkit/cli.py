@@ -14,7 +14,9 @@ from .config import load_env_file, voice_id_for
 from .elevenlabs import ElevenLabsClient
 from .media import audio_duration
 from .models import ArtifactKind, ArtifactStatus, Mode
-from .render import prepare_renderer_job, run_render, run_studio
+from .render import prepare_renderer_job, remotion_command, run_render, run_studio
+from .runtime import resolve_node
+from . import library, workflow
 from .script_bundle import validate_script_bundle
 from .storage import Workspace, sha256_file, slugify
 from .subtitles import render_srt, render_vtt
@@ -55,6 +57,8 @@ def build_parser() -> argparse.ArgumentParser:
     create.add_argument("--languages", default="vi,en")
     create.add_argument("--mode", choices=[mode.value for mode in Mode], default=Mode.REVIEW.value)
     create.add_argument("--source-url")
+    create.add_argument("--workflow-version", type=int, choices=[2, 3], default=3,
+                        help=argparse.SUPPRESS)
 
     listing = sub.add_parser("list")
     listing.add_argument("--status")
@@ -88,6 +92,39 @@ def build_parser() -> argparse.ArgumentParser:
     add_asset.add_argument("--description", required=True)
     add_asset.add_argument("--usage-basis", required=True)
     add_asset.add_argument("--source-url")
+    add_asset.add_argument("--type", choices=["screenshot", "logo", "artwork", "chart", "diagram", "illustration"], default="artwork")
+
+    for name in ("add-brief", "add-caption-plan"):
+        command = sub.add_parser(name)
+        command.add_argument("job_id")
+        command.add_argument("language")
+        command.add_argument("file", type=Path)
+
+    approval = sub.add_parser("approve")
+    approval.add_argument("job_id")
+    approval.add_argument("language")
+    approval.add_argument("stage", choices=["concept", "export"])
+    approval.add_argument("--reviewer", required=True)
+
+    qa = sub.add_parser("qa")
+    qa.add_argument("job_id")
+    qa.add_argument("language")
+    qa.add_argument("file", type=Path, nargs="?")
+
+    library_parser = sub.add_parser("library")
+    library_commands = library_parser.add_subparsers(dest="library_command", required=True)
+    lib_search = library_commands.add_parser("search")
+    lib_search.add_argument("query", nargs="?", default="")
+    for name in ("kind", "theme", "status", "aspect"):
+        lib_search.add_argument(f"--{name}")
+    for name in ("show", "preview"):
+        command = library_commands.add_parser(name)
+        command.add_argument("entry_id")
+    lib_add = library_commands.add_parser("add")
+    lib_add.add_argument("file", type=Path)
+    lib_approve = library_commands.add_parser("approve")
+    lib_approve.add_argument("entry_id")
+    lib_approve.add_argument("--reviewer", required=True)
 
     add_storyboard = sub.add_parser("add-storyboard")
     add_storyboard.add_argument("job_id")
@@ -114,7 +151,7 @@ def build_parser() -> argparse.ArgumentParser:
     timeline.add_argument("language")
     timeline.add_argument("--draft", action="store_true")
 
-    for name in ("studio", "render"):
+    for name in ("studio", "preview", "render"):
         command = sub.add_parser(name)
         command.add_argument("job_id")
         command.add_argument("language")
@@ -142,7 +179,8 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "create":
             print(
                 workspace.create_job(
-                    args.topic, args.languages.split(","), Mode(args.mode), args.source_url
+                    args.topic, args.languages.split(","), Mode(args.mode), args.source_url,
+                    args.workflow_version,
                 )
             )
         elif args.command == "list":
@@ -167,7 +205,19 @@ def main(argv: list[str] | None = None) -> int:
                 args.description,
                 args.usage_basis,
                 args.source_url,
+                args.type,
             )
+        elif args.command == "add-brief":
+            print(workflow.add_brief(workspace, args.job_id, args.language, args.file)["path"])
+        elif args.command == "add-caption-plan":
+            print(workflow.add_caption_plan(workspace, args.job_id, args.language, args.file)["path"])
+        elif args.command == "approve":
+            print(workflow.approve(workspace, args.job_id, args.language, args.stage, args.reviewer)["path"])
+        elif args.command == "qa":
+            supplied = load_json(args.file) if args.file else None
+            print(workflow.make_qa(workspace, args.job_id, args.language, supplied)["path"])
+        elif args.command == "library":
+            _library(workspace, args)
         elif args.command == "add-storyboard":
             _add_storyboard(workspace, args.job_id, args.language, args.file)
         elif args.command == "tts":
@@ -178,7 +228,7 @@ def main(argv: list[str] | None = None) -> int:
             _import_transcript(workspace, args.job_id, args.language, args.file, args.audio)
         elif args.command == "timeline":
             _timeline(workspace, args.job_id, args.language, args.draft)
-        elif args.command in {"studio", "render"}:
+        elif args.command in {"studio", "preview", "render"}:
             return _remotion(workspace, args.job_id, args.language, args.command)
         elif args.command == "import-render":
             _import_render(workspace, args.job_id, args.language, args.file)
@@ -200,7 +250,7 @@ def _doctor(workspace: Workspace, as_json: bool) -> None:
     checks = {
         "workspace": workspace.workspace_root.is_dir(),
         "python": sys.version.split()[0],
-        "node": shutil.which("node") is not None,
+        "node": str(resolve_node()) if resolve_node() else None,
         "npm": shutil.which("npm.cmd") is not None or shutil.which("npm") is not None,
         "npx": shutil.which("npx.cmd") is not None or shutil.which("npx") is not None,
         "ffprobe": shutil.which("ffprobe") is not None,
@@ -210,11 +260,42 @@ def _doctor(workspace: Workspace, as_json: bool) -> None:
         "voiceVi": bool(voice_id_for("vi")),
         "voiceEn": bool(voice_id_for("en")),
     }
+    try:
+        checks["remotionCommand"] = remotion_command(workspace.project_root)
+    except RuntimeError as exc:
+        checks["remotionCommand"] = str(exc)
     if as_json:
         print(json.dumps(checks, ensure_ascii=False, indent=2))
         return
     for key, value in checks.items():
         print(f"{key:22} {value}")
+
+
+def _library(workspace: Workspace, args: argparse.Namespace) -> None:
+    if args.library_command == "search":
+        result = library.search(workspace, args.query, kind=args.kind, theme=args.theme,
+                                status=args.status, aspect=args.aspect)
+    elif args.library_command in {"show", "preview"}:
+        result = library.show(workspace, args.entry_id)
+        if args.library_command == "preview":
+            result = {"id": result["id"], "version": result["version"],
+                      "preview": str(library.preview(workspace, args.entry_id)),
+                      "description": result["description"], "useCases": result["useCases"],
+                      "limitations": result["limitations"]}
+    elif args.library_command == "add":
+        result = library.add_candidate(workspace, args.file)
+    else:
+        result = library.approve(workspace, args.entry_id, args.reviewer)
+    if args.library_command in {"search", "show"}:
+        rows = result if isinstance(result, list) else [result]
+        for item in rows:
+            item["previewCommand"] = f"vidkit library preview {item['id']}"
+            item["storyboardUse"] = (
+                {"component": item["id"], "componentVersion": item["version"]}
+                if item["kind"] == "component" and item["status"] in {"approved", "candidate"}
+                else None
+            )
+    print(json.dumps(result, ensure_ascii=False, indent=2))
 
 
 def _list_jobs(workspace: Workspace, status: str | None, as_json: bool) -> None:
@@ -269,6 +350,8 @@ def _next(workspace: Workspace, job_id: str, language: str | None, as_json: bool
 
 
 def _next_state(workspace: Workspace, job: dict[str, Any], language: str) -> dict[str, Any]:
+    if job.get("workflow_version", 2) >= 3:
+        return workflow.next_state(workspace, job, language)
     job_id = job["id"]
     issues: list[str] = []
     source = workspace.latest_artifact(job_id, ArtifactKind.SOURCE, None)
@@ -360,12 +443,13 @@ def _add_asset(
     description: str,
     usage_basis: str,
     source_url: str | None,
+    evidence_type: str,
 ) -> None:
     if not usage_basis.strip():
         raise ValueError("usage basis cannot be empty")
     manifest, previous = load_asset_manifest(workspace, job_id)
     entry, target = prepare_asset_entry(
-        workspace, job_id, file, description, usage_basis, source_url
+        workspace, job_id, file, description, usage_basis, source_url, evidence_type
     )
     existing = next((item for item in manifest["assets"] if item["sha256"] == entry["sha256"]), None)
     if existing:
@@ -408,6 +492,9 @@ def _add_storyboard(workspace: Workspace, job_id: str, language: str, file: Path
 
 
 def _tts(workspace: Workspace, job_id: str, language: str, voice_id: str | None) -> None:
+    job = workspace.get_job(job_id)
+    if job.get("workflow_version", 2) >= 3 and job["mode"] == Mode.REVIEW.value and not workflow.current_approval(workspace, job_id, language, "concept"):
+        raise RuntimeError("Concept approval for current script and brief is required before TTS")
     voice_id = voice_id or voice_id_for(language)
     if not voice_id:
         variable = f"VIDKIT_VOICE_{language.upper().replace('-', '_')}"
@@ -447,6 +534,9 @@ def _import_transcript(
     transcript_file: Path,
     audio_file: Path | None,
 ) -> None:
+    job = workspace.get_job(job_id)
+    if job.get("workflow_version", 2) >= 3 and job["mode"] == Mode.REVIEW.value and not workflow.current_approval(workspace, job_id, language, "concept"):
+        raise RuntimeError("Concept approval is required before importing narration or transcript")
     audio_artifact = workspace.latest_artifact(job_id, ArtifactKind.AUDIO, language)
     if audio_file:
         if not audio_file.is_file():
@@ -517,6 +607,11 @@ def _normalized_transcript_artifact(
 
 
 def _timeline(workspace: Workspace, job_id: str, language: str, draft: bool) -> None:
+    job_info = workspace.get_job(job_id)
+    if job_info.get("workflow_version", 2) >= 3:
+        require_artifact(workspace, job_id, language, ArtifactKind.BRIEF)
+        if job_info["mode"] == Mode.REVIEW.value and not workflow.current_approval(workspace, job_id, language, "concept"):
+            raise RuntimeError("Concept approval is required before timeline compilation")
     transcript_artifact = _normalized_transcript_artifact(workspace, job_id, language)
     if not transcript_artifact:
         raise RuntimeError("Missing normalized transcript")
@@ -525,6 +620,8 @@ def _timeline(workspace: Workspace, job_id: str, language: str, draft: bool) -> 
     script = read_artifact_json(workspace, script_artifact)
     audio_artifact = require_artifact(workspace, job_id, language, ArtifactKind.AUDIO)
     storyboard_artifact = None
+    caption_plan_artifact = workspace.latest_artifact(job_id, ArtifactKind.CAPTION_PLAN, language)
+    caption_plan = read_artifact_json(workspace, caption_plan_artifact) if caption_plan_artifact else None
     manifest_artifact = workspace.latest_artifact(job_id, ArtifactKind.ASSET_MANIFEST, None)
     if draft:
         timeline = build_draft_timeline(
@@ -534,6 +631,10 @@ def _timeline(workspace: Workspace, job_id: str, language: str, draft: bool) -> 
     else:
         storyboard_artifact = require_artifact(workspace, job_id, language, ArtifactKind.STORYBOARD)
         storyboard = read_artifact_json(workspace, storyboard_artifact)
+        if job_info.get("workflow_version", 2) >= 3:
+            brief = read_artifact_json(workspace, require_artifact(workspace, job_id, language, ArtifactKind.BRIEF))
+            if storyboard.get("theme", "dark-grid") != brief["theme"]:
+                raise ValueError("Storyboard theme differs from approved creative brief; revise brief and approval")
         manifest, _ = load_asset_manifest(workspace, job_id)
         timeline, missing_assets = compile_storyboard(
             transcript,
@@ -542,13 +643,27 @@ def _timeline(workspace: Workspace, job_id: str, language: str, draft: bool) -> 
             script.get("title") or workspace.get_job(job_id)["topic"],
             language,
             audio_artifact["path"],
+            caption_plan,
+            library.entries(workspace) if workspace.get_job(job_id).get("workflow_version", 2) >= 3 else None,
         )
     job = workspace.get_job(job_id)
+    if job.get("workflow_version", 2) >= 3:
+        timeline["schemaVersion"] = 3
+        timeline["rendererCodeSha256"] = sha256_file(workspace.project_root / "renderer" / "src" / "VidkitShort.tsx")
+        timeline["rendererPackageLockSha256"] = sha256_file(workspace.project_root / "renderer" / "package-lock.json")
+        if "theme" not in timeline:
+            brief_artifact = workspace.latest_artifact(job_id, ArtifactKind.BRIEF, language)
+            timeline["theme"] = read_artifact_json(workspace, brief_artifact).get("theme", "dark-grid") if brief_artifact else "dark-grid"
     validation_issues: list[str] = []
     if transcript_artifact["status"] != ArtifactStatus.CHECKED.value:
         validation_issues.append(f"transcript status is {transcript_artifact['status']}")
     validation_issues.extend(timeline.get("assetWarnings", []))
     source_artifact = workspace.latest_artifact(job_id, ArtifactKind.SOURCE, None)
+    if job.get("workflow_version", 2) >= 3 and source_artifact:
+        claim_ids = {item["id"] for item in read_artifact_json(workspace, source_artifact).get("claims", [])}
+        unknown_claims = set(timeline.get("claimToScene", {})) - claim_ids
+        if unknown_claims:
+            validation_issues.append("unknown storyboard claim IDs: " + ", ".join(sorted(unknown_claims)))
     if job["mode"] == Mode.AUTOMATIC.value and (
         not source_artifact or source_artifact["status"] != ArtifactStatus.CHECKED.value
     ):
@@ -562,6 +677,8 @@ def _timeline(workspace: Workspace, job_id: str, language: str, draft: bool) -> 
     }
     if storyboard_artifact:
         upstream["storyboard"] = storyboard_artifact["revision"]
+    if caption_plan_artifact:
+        upstream["caption-plan"] = caption_plan_artifact["revision"]
     if manifest_artifact:
         upstream["asset-manifest"] = manifest_artifact["revision"]
     if missing_assets:
@@ -607,10 +724,19 @@ def _remotion(workspace: Workspace, job_id: str, language: str, action: str) -> 
     timeline_artifact = require_artifact(workspace, job_id, language, ArtifactKind.TIMELINE)
     timeline = read_artifact_json(workspace, timeline_artifact)
     audio_artifact = require_artifact(workspace, job_id, language, ArtifactKind.AUDIO)
+    job = workspace.get_job(job_id)
+    if job.get("workflow_version", 2) >= 3:
+        if timeline.get("rendererCodeSha256") != sha256_file(workspace.project_root / "renderer" / "src" / "VidkitShort.tsx"):
+            raise RuntimeError("Renderer code changed since timeline compilation; rebuild timeline and preview")
+        if timeline.get("rendererPackageLockSha256") != sha256_file(workspace.project_root / "renderer" / "package-lock.json"):
+            raise RuntimeError("Renderer dependencies changed since timeline compilation; rebuild timeline and preview")
+        if not library.locks_match(workspace, timeline):
+            raise RuntimeError("A locked theme, component or effect changed; rebuild timeline and preview")
+        if audio_artifact["sha256"] != sha256_file(workspace.resolve_path(audio_artifact)):
+            raise RuntimeError("Audio checksum differs from tracked artifact")
     props = prepare_renderer_job(
         workspace, job_id, language, timeline, workspace.resolve_path(audio_artifact)
     )
-    job = workspace.get_job(job_id)
     if action == "studio":
         output = workspace.job_root(job_id) / "exports" / f"{slugify(job['topic'])}.{language}.studio.mp4"
         return run_studio(workspace.project_root, props, output)
@@ -623,17 +749,44 @@ def _remotion(workspace: Workspace, job_id: str, language: str, action: str) -> 
         ArtifactStatus.APPROVED.value,
     }:
         raise RuntimeError("Automatic export is blocked until timeline checks pass")
+    is_v3 = job.get("workflow_version", 2) >= 3
+    if is_v3 and action == "render":
+        qa = workspace.latest_artifact(job_id, ArtifactKind.QA_REPORT, language)
+        if not qa:
+            raise RuntimeError("QA report is required before export")
+        if any(check["status"] == "fail" for check in read_artifact_json(workspace, qa)["checks"].values()):
+            raise RuntimeError("QA failed")
+        if job["mode"] == Mode.REVIEW.value and not workflow.current_approval(workspace, job_id, language, "export"):
+            raise RuntimeError("Export approval for current preview, QA and timeline is required")
+    if is_v3 and action == "preview":
+        workspace.invalidate_downstream(job_id, language, ArtifactKind.PREVIEW)
+    if is_v3 and action == "render" and not workspace.latest_artifact(job_id, ArtifactKind.PREVIEW, language):
+        raise RuntimeError("Preview MP4 is required before export")
     output = workspace.pending_path(job_id, language, "final.pending.mp4")
     code = run_render(workspace.project_root, props, output)
     if code == 0:
+        kind = ArtifactKind.PREVIEW if action == "preview" else ArtifactKind.RENDER
+        upstream = {"timeline": timeline_artifact["revision"]}
+        if kind == ArtifactKind.RENDER:
+            preview_artifact = workspace.latest_artifact(job_id, ArtifactKind.PREVIEW, language)
+            qa_artifact = workspace.latest_artifact(job_id, ArtifactKind.QA_REPORT, language)
+            if preview_artifact:
+                upstream["preview"] = preview_artifact["revision"]
+            if qa_artifact:
+                upstream["qa-report"] = qa_artifact["revision"]
         artifact = workspace.add_file_artifact(
             job_id,
             language,
-            ArtifactKind.RENDER,
+            kind,
             output,
             ArtifactStatus.NEEDS_REVIEW,
-            upstream={"timeline": timeline_artifact["revision"]},
-            metadata={"renderer": "remotion", "format": "1080x1920@30"},
+            upstream=upstream,
+            metadata={"renderer": "remotion", "format": "1080x1920@30",
+                      "theme": timeline.get("theme"), "componentLocks": timeline.get("componentLocks", []),
+                      "themeLock": timeline.get("themeLock"), "effectLocks": timeline.get("effectLocks", []),
+                      "rendererCodeSha256": timeline.get("rendererCodeSha256"),
+                      "rendererPackageLockSha256": timeline.get("rendererPackageLockSha256"),
+                      "claimToScene": timeline.get("claimToScene", {})},
         )
         output.unlink(missing_ok=True)
         print(artifact["path"])
@@ -642,10 +795,13 @@ def _remotion(workspace: Workspace, job_id: str, language: str, action: str) -> 
 
 def _import_render(workspace: Workspace, job_id: str, language: str, file: Path) -> None:
     timeline = require_artifact(workspace, job_id, language, ArtifactKind.TIMELINE)
+    is_v3 = workspace.get_job(job_id).get("workflow_version", 2) >= 3
+    if is_v3:
+        workspace.invalidate_downstream(job_id, language, ArtifactKind.PREVIEW)
     artifact = workspace.add_file_artifact(
         job_id,
         language,
-        ArtifactKind.RENDER,
+        ArtifactKind.PREVIEW if is_v3 else ArtifactKind.RENDER,
         file,
         ArtifactStatus.NEEDS_REVIEW,
         upstream={"timeline": timeline["revision"]},
