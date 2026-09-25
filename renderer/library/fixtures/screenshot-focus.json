@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 3,
+  "language": "en",
+  "title": "The key feature",
+  "audioSrc": "",
+  "durationSeconds": 3,
+  "theme": "dark-grid",
+  "captions": [],
+  "scenes": [
+    {
+      "id": "sample",
+      "layout": "screenshot-focus",
+      "title": "The key feature",
+      "body": "Focused product view",
+      "asset": {
+        "id": "synthetic-fixture",
+        "src": "fixtures/synthetic-response.png",
+        "width": 1400,
+        "height": 900
+      },
+      "crop": {"x": 0.1, "y": 0.22, "width": 0.55, "height": 0.78},
+      "startMs": 0,
+      "endMs": 3000
+    }
+  ],
+  "safeArea": {
+    "top": 88,
+    "right": 162,
+    "bottom": 260,
+    "left": 162
+  }
+}
