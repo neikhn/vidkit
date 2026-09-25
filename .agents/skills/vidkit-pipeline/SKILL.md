@@ -1,33 +1,17 @@
 ---
 name: vidkit-pipeline
-description: Coordinate Vidkit AI Shorts production across research, bilingual scripting, ElevenLabs narration and transcription, storyboard, rendering, and review or automatic publishing. Use for multi-stage requests and resuming jobs.
+description: Coordinate Vidkit research, script, creative brief, concept approval, ElevenLabs narration, timed storyboard, preview QA, and export. Use for multi-stage requests and resuming jobs.
 ---
 # Vidkit pipeline
 
-## Inputs and routing
-Read [handoff contract](references/handoff-contract.md) before coordinating stages. Accept a topic, source URL, or existing artifacts. Inspect available artifacts and their revisions; enter at the earliest missing or invalid stage, without recreating valid work.
-For executable commands and JSON shapes, read [CLI workflow](references/cli-workflow.md).
+Read [handoff contract](references/handoff-contract.md) and [CLI workflow](references/cli-workflow.md). Use `vidkit doctor`, `vidkit show <job-id>`, and `vidkit next <job-id> --language <language> --json` before acting. Existing v2 jobs keep their workflow; new jobs use v3. Do not edit SQLite or assume a missing stage is complete.
 
-Route only the needed modules:
-- [research](../vidkit-research/SKILL.md): sources and evidence.
-- [script](../vidkit-script/SKILL.md): localized narration.
-- [voice](../vidkit-voice/SKILL.md): Eleven v3 preparation and audio.
-- [transcript](../vidkit-transcript/SKILL.md): final audio to word-level text.
-- [storyboard](../vidkit-storyboard/SKILL.md): timed scenes and captions.
-- [render](../vidkit-render/SKILL.md): specification, preview and export.
-- [publish](../vidkit-publish/SKILL.md): metadata, publishing and performance.
+For each language, follow: research → script → creative brief with theme, hook, visual strategy, sourced assets and three frame previews → concept approval in review mode → final Eleven v3 narration → ElevenLabs STT word-level transcript → assets and caption plan → storyboard and motion → preview MP4 → QA report → export approval in review mode → render. Use `vidkit next` after every handoff.
 
-## Workflow
-1. Establish requested languages, entry point, artifacts and mode. Defaults: Vietnamese and English, review mode, 45–75 seconds per version.
-2. Maintain independent localized revisions; research and authorized visual assets may be shared.
-3. Follow script → Eleven v3 TTS → final MP3 → ElevenLabs STT word-level → checks → storyboard → render → publishing.
-4. Apply dependency invalidation from the contract after edits.
-5. Use `vidkit next <job-id> --language <language> --json` after each handoff.
-6. Report actual stage status, workspace artifact locations and the next concrete dependency.
+In review mode, “continue” means continue non-gated preparation only. Require explicit `vidkit approve ... concept` and `vidkit approve ... export` for the current revisions. In automatic mode, skip waits for video approval but never ignore validation failures; candidate library entries remain candidates. Do not promote a library candidate while approving a video unless the user separately chooses to do so.
 
-Daily discovery plus on-demand input is the intended operating model, not an installed schedule. Skills do not start background work.
+Search and preview the library before proposing new components. If a product screenshot is inaccessible, continue with sourced official artwork, an API example, chart or explanatory diagram. Label the evidence type and limitations accurately in brief and QA. Do not invent UI screenshots or logos.
 
-## Completion and missing capabilities
-The repository includes the Python CLI, revision database, ElevenLabs client and Remotion renderer. Research, writing, asset selection and storyboard authoring are agent work imported through checked CLI interfaces; no embedded LLM service or scheduler exists. When a stage cannot execute, deliver a labeled artifact and state what remains. Never invent successful API calls, checks or publication.
+Research and editorial work are agent tasks imported through the CLI. TTS and STT are paid API steps; do not send requests speculatively or repeat an uncertain result. No embedded LLM API, scheduler, automatic publishing, music beat detector, or budget guard exists.
 
-For maintenance reviews, use [handoff scenarios](references/handoff-scenarios.md).
+Route to [research](../vidkit-research/SKILL.md), [script](../vidkit-script/SKILL.md), [voice](../vidkit-voice/SKILL.md), [transcript](../vidkit-transcript/SKILL.md), [storyboard](../vidkit-storyboard/SKILL.md), [render](../vidkit-render/SKILL.md), and [publish](../vidkit-publish/SKILL.md) only as needed. Report actual artifact paths, revisions and unperformed QA checks.
