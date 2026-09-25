@@ -6,7 +6,8 @@ from typing import Any
 from .captions import build_caption_cues
 
 
-SCENE_TYPES = ["hook", "screenshot", "steps", "takeaway"]
+SCENE_TYPES = ["hook", "screenshot", "steps", "takeaway", "brand-hook", "screenshot-focus",
+               "api-response", "diagram-flow", "metric-breakdown"]
 
 
 def build_draft_timeline(
@@ -52,6 +53,8 @@ def compile_storyboard(
     title: str,
     language: str,
     audio_src: str,
+    caption_plan: dict[str, Any] | None = None,
+    library_entries: list[dict[str, Any]] | None = None,
 ) -> tuple[dict[str, Any], list[str]]:
     words = transcript.get("words", [])
     if not words:
@@ -69,6 +72,17 @@ def compile_storyboard(
         layout = str(scene.get("layout", ""))
         if layout not in SCENE_TYPES:
             raise ValueError(f"Scene {index + 1} has unsupported layout: {layout}")
+        component_id = str(scene.get("component", {"hook": "brand-hook", "screenshot": "screenshot-focus",
+                                                   "steps": "diagram-flow"}.get(layout, layout)))
+        component_version = str(scene.get("componentVersion", "1.0.0"))
+        component_entry = next((item for item in (library_entries or [])
+                                if item.get("id") == component_id and item.get("version") == component_version
+                                and item.get("kind") == "component"), None)
+        if library_entries is not None and component_entry is None:
+            raise ValueError(f"Scene {index + 1} references unknown component {component_id}@{component_version}")
+        if component_entry and component_entry.get("status") == "candidate":
+            if not component_entry.get("previewValid"):
+                raise ValueError(f"Scene {index + 1} candidate requires a rendered library preview")
         start_index = _anchor_index(scene.get("startAnchor"), words, "start", index)
         end_index = _anchor_index(scene.get("endAnchor"), words, "end", index)
         if start_index > end_index:
@@ -79,7 +93,7 @@ def compile_storyboard(
             raise ValueError(f"Scene {index + 1} must begin at word {previous_end + 1}")
         previous_end = end_index
         asset_id = scene.get("assetId")
-        required_asset = bool(scene.get("assetRequired", layout == "screenshot"))
+        required_asset = bool(scene.get("assetRequired", layout in {"screenshot", "screenshot-focus"}))
         asset = assets.get(asset_id) if asset_id else None
         if required_asset and asset is None:
             missing_assets.append(str(asset_id or f"scene:{scene.get('id', index + 1)}"))
@@ -99,6 +113,15 @@ def compile_storyboard(
                 "assetRequired": required_asset,
                 "crop": _validate_crop(scene.get("crop"), index),
                 "callout": scene.get("callout"),
+                "component": component_entry.get("baseComponent", component_id) if component_entry else component_id,
+                "componentId": component_id,
+                "componentVersion": component_version,
+                "claimIds": scene.get("claimIds", []),
+                "motion": _compile_motion(
+                    {**(component_entry.get("defaults", {}).get("motion", {}) if component_entry else {}),
+                     **scene.get("motion", {})},
+                    words, start_index, end_index, index,
+                ),
             }
         )
     if previous_end != len(words) - 1:
@@ -106,7 +129,7 @@ def compile_storyboard(
     duration_ms = _duration_ms(transcript, words)
     for index, scene in enumerate(compiled):
         scene["endMs"] = compiled[index + 1]["startMs"] if index + 1 < len(compiled) else duration_ms
-    cues = build_caption_cues(words)
+    cues = build_caption_cues(words, plan=caption_plan)
     asset_warnings = list(
         dict.fromkeys(
             f"{scene['asset']['id']}: {warning}"
@@ -115,6 +138,16 @@ def compile_storyboard(
             for warning in scene["asset"].get("qualityWarnings", [])
         )
     )
+    for scene in compiled:
+        asset = scene.get("asset")
+        if asset and scene["layout"] in {"screenshot", "screenshot-focus"}:
+            crop = scene["crop"]
+            crop_aspect = crop["width"] * asset["width"] / (crop["height"] * asset["height"])
+            panel_aspect = 948 / 890
+            if crop_aspect > panel_aspect * 1.35 or crop_aspect < panel_aspect / 1.35:
+                asset_warnings.append(
+                    f"{asset['id']}: crop aspect differs from portrait panel; cover may clip the selected region"
+                )
     timeline = _timeline_payload(
         language,
         title,
@@ -126,13 +159,42 @@ def compile_storyboard(
         missing_assets,
     )
     timeline["assetWarnings"] = asset_warnings
+    timeline["theme"] = storyboard.get("theme", "dark-grid")
+    theme_entry = next((item for item in (library_entries or []) if item.get("id") == timeline["theme"]
+                        and item.get("kind") == "theme"), None)
+    if library_entries is not None and theme_entry is None:
+        raise ValueError(f"Unknown theme: {timeline['theme']}")
+    if theme_entry and theme_entry.get("status") == "candidate" and not theme_entry.get("previewValid"):
+        raise ValueError(f"Theme {timeline['theme']} candidate requires a rendered library preview")
+    timeline["themeLock"] = {"id": timeline["theme"], "version": theme_entry["version"],
+                             "sha256": theme_entry["sha256"]} if theme_entry else None
+    if theme_entry and theme_entry.get("style"):
+        timeline["themeData"] = theme_entry["style"]
+    timeline["componentLocks"] = [
+        {"id": scene["componentId"], "version": scene["componentVersion"],
+         "sha256": next((item.get("sha256") for item in (library_entries or [])
+                         if item.get("id") == scene["componentId"] and item.get("version") == scene["componentVersion"]), None)}
+        for scene in compiled
+    ]
+    effect_ids = {"bits-gradient-transition"}
+    if any(scene["component"] == "brand-hook" for scene in compiled):
+        effect_ids.add("bits-animated-text")
+    if any(scene["component"] == "metric-breakdown" for scene in compiled):
+        effect_ids.add("bits-animated-counter")
+    timeline["effectLocks"] = [
+        {"id": item["id"], "version": item["version"], "sha256": item["sha256"]}
+        for item in (library_entries or []) if item.get("id") in effect_ids and item.get("kind") == "effect"
+    ]
+    timeline["claimToScene"] = {
+        claim: scene["id"] for scene in compiled for claim in scene["claimIds"]
+    }
     return timeline, missing_assets
 
 
 def validate_storyboard_shape(payload: dict[str, Any]) -> list[str]:
     errors: list[str] = []
-    if payload.get("schemaVersion") != 1:
-        errors.append("schemaVersion must be 1")
+    if payload.get("schemaVersion") not in {1, 3}:
+        errors.append("schemaVersion must be 1 or 3")
     scenes = payload.get("scenes")
     if not isinstance(scenes, list) or not scenes:
         errors.append("scenes must be a non-empty list")
@@ -159,6 +221,11 @@ def validate_storyboard_shape(payload: dict[str, Any]) -> list[str]:
                 errors.append(f"{label} {anchor_name}.wordIndex is required")
         if scene.get("assetRequired") and not scene.get("assetId"):
             errors.append(f"{label} requires assetId")
+        if payload.get("schemaVersion") == 3:
+            if not isinstance(scene.get("claimIds", []), list):
+                errors.append(f"{label} claimIds must be a list")
+            if not isinstance(scene.get("motion", {}), dict):
+                errors.append(f"{label} motion must be an object")
         try:
             _validate_crop(scene.get("crop"), index)
         except (TypeError, ValueError) as exc:
@@ -191,6 +258,22 @@ def _validate_crop(crop: Any, scene_index: int) -> dict[str, float]:
     return result
 
 
+def _compile_motion(motion: dict[str, Any], words: list[dict[str, Any]],
+                    start: int, end: int, scene_index: int) -> dict[str, Any]:
+    result = dict(motion)
+    cues = result.get("cues", [])
+    if not isinstance(cues, list):
+        raise ValueError(f"Scene {scene_index + 1} motion.cues must be a list")
+    compiled = []
+    for cue in cues:
+        anchor = cue.get("wordIndex") if isinstance(cue, dict) else None
+        if not isinstance(anchor, int) or not start <= anchor <= end:
+            raise ValueError(f"Scene {scene_index + 1} motion cue wordIndex must be in scene")
+        compiled.append({**cue, "atMs": round(float(words[anchor]["start"]) * 1000)})
+    result["cues"] = compiled
+    return result
+
+
 def _timeline_payload(
     language: str,
     title: str,
@@ -212,7 +295,7 @@ def _timeline_payload(
         "storyboardStatus": storyboard_status,
         "missingAssets": missing_assets,
         "assetWarnings": [],
-        "safeArea": {"top": 88, "right": 150, "bottom": 260, "left": 64},
+        "safeArea": {"top": 88, "right": 162, "bottom": 260, "left": 162},
     }
 
 
