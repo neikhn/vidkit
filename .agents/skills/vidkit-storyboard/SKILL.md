@@ -1,25 +1,17 @@
 ---
 name: vidkit-storyboard
-description: Turn Vidkit scripts and word-level transcripts into meaning-driven timed scenes, caption groups and animation cues. Use for narrative timing and subtitle design, not music beat detection.
+description: Turn Vidkit scripts and word-level transcripts into meaning-driven scenes, caption groups, motion cues, and theme-locked timelines.
 ---
-# Storyboard
+# Vidkit storyboard
 
-## Input and output
-Input: script, source pack, checked transcript, final audio identity and asset inventory.
-Output: timeline using the [contract](../vidkit-pipeline/references/handoff-contract.md).
-Read [visual style](references/visual-style.md) for scene design and [subtitles](references/subtitles.md) for caption grouping.
-Read the storyboard schema in [CLI workflow](../vidkit-pipeline/references/cli-workflow.md) before writing JSON.
+Read [visual style](references/visual-style.md), [subtitle treatment](references/subtitles.md), and the [CLI workflow](../vidkit-pipeline/references/cli-workflow.md). Input: approved creative brief in review mode, final audio identity, normalized transcript, source claims, and asset inventory. Output: storyboard JSON and optional caption plan imported through the CLI.
 
-## Workflow
-1. Reconstruct complete narrative ideas across export segment boundaries.
-2. Choose a scene for each useful explanatory beat. Assign contiguous transcript `wordIndex` ranges and copy the matching anchor text; never write milliseconds.
-3. Use keywords for reveals, counters or emphasis; change scenes at meaningful transitions rather than each word.
-4. Select source footage and diagrams that actually support the claims. Label conceptual diagrams and avoid invented numerical histories.
-5. Group readable captions from the same words; share timing with scene cues.
-6. Make separate localized timelines. Research/assets can be shared, but narration duration and layout cannot be assumed identical.
-7. Import with `vidkit add-storyboard`, then run `vidkit timeline`. Missing required assets may remain for Studio preview but block export.
+Search `vidkit library search`, inspect `library show`, and render `library preview` before selecting a component. Choose one visual claim per scene. Use brand-hook, screenshot-focus, api-response, diagram-flow, metric-breakdown and takeaway as appropriate; avoid repeating one layout three times. A new candidate must have a fixture and tested base component. Render the candidate preview after the last manifest/fixture edit; a stale preview blocks use and approval. Preserve component ID/version/checksum and theme lock in the compiled timeline.
 
-## Completion and missing inputs
-Complete when every timed scene/caption has valid anchors and necessary assets or explicitly unresolved dependencies. With only script, deliver an untimed storyboard; do not invent measured seconds. Missing assets or unchecked synchronization prevent a production-ready handoff.
+Scenes must partition transcript word indexes exactly. Copy anchor text; Python derives milliseconds. Motion cues use word indexes in their scene, never invented timestamps. Use source claim IDs, accurate asset IDs and crop coordinates from the original image. If no product screenshot exists, continue with a sourced substitute and call it by its true type.
 
-Music beat analysis and vocal stress detection are separate capabilities outside v1. Word timing alone does not measure either.
+Propose caption groups by meaning. Use contiguous word-index ranges; optional display tokens must cover every spoken word and carry exact spokenText. Let Python validate the plan and Noto Sans width. Keep captions to two lines, avoid orphan words and split boundaries at short connectors or between numbers and units. Subtitles and animated captions share timing; music beat analysis is outside this workflow.
+
+Run `vidkit add-storyboard`, optional `vidkit add-caption-plan`, and `vidkit timeline`. If timing, assets, claims or library components fail validation, revise the inputs and compile again. Visual and caption edits retain unchanged audio/transcript; new audio invalidates both.
+
+Remotion Bits: `vidkit library search bits --kind effect` lists the three integrated effects; `vidkit library search bits --kind bit` lists 23 upstream examples. Use `library preview <bit-id>` to render a gallery sample and `library show <bit-id>` to find its source in the pinned package. A `bit` entry is an example with sample data, not a storyboard component; adapt and test a parameterized wrapper before using it in a video. See renderer/library/THIRD_PARTY.md for provenance.
