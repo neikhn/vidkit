@@ -1,5 +1,7 @@
 import React from 'react';
 import {Audio} from '@remotion/media';
+import {AnimatedCounter, AnimatedText, GradientTransition} from 'remotion-bits';
+import libraryManifest from '../library/manifest.json';
 import {
   AbsoluteFill,
   continueRender,
@@ -14,14 +16,14 @@ import {
 } from 'remotion';
 
 type CaptionToken = {text: string; start_ms?: number; end_ms?: number; startMs?: number; endMs?: number};
-type Caption = {text: string; startMs: number; endMs: number; tokens: CaptionToken[]};
+type Caption = {text: string; startMs: number; endMs: number; tokens: CaptionToken[]; lines?: string[]};
 type Asset = {id: string; src?: string; description?: string; width?: number; height?: number};
 type Crop = {x: number; y: number; width: number; height: number};
 type Callout = {text?: string; x?: number; y?: number};
 type SafeArea = {top: number; right: number; bottom: number; left: number};
 type Scene = {
   id: string;
-  layout: 'hook' | 'screenshot' | 'steps' | 'takeaway';
+  layout: 'hook' | 'screenshot' | 'steps' | 'takeaway' | 'brand-hook' | 'screenshot-focus' | 'api-response' | 'diagram-flow' | 'metric-breakdown';
   purpose?: string;
   title: string;
   body: string;
@@ -32,6 +34,15 @@ type Scene = {
   assetRequired?: boolean;
   crop?: Crop;
   callout?: Callout | null;
+  component?: string;
+  componentVersion?: string;
+  claimIds?: string[];
+  motion?: {cues?: Array<{atMs: number; type?: string}>; zoomTo?: number};
+};
+
+const labels = {
+  en: {hook: 'Worth knowing', screenshot: 'Product evidence', steps: 'How it works', takeaway: 'Takeaway'},
+  vi: {hook: 'Điểm đáng chú ý', screenshot: 'Demo sản phẩm', steps: 'Cách hoạt động', takeaway: 'Kết luận'},
 };
 
 export type VidkitShortProps = {
@@ -43,10 +54,20 @@ export type VidkitShortProps = {
   captions: Caption[];
   scenes: Scene[];
   safeArea?: SafeArea;
+  theme?: string;
+  themeData?: Theme;
 };
 
 const defaultSafeArea: SafeArea = {top: 88, right: 150, bottom: 260, left: 64};
 const nfc = (value: string | undefined) => (value ?? '').normalize('NFC');
+
+type Theme = {
+  background: string; surface: string; text: string; muted: string; accent: string; pattern: string;
+  typography: {headlineSize: number; captionSize: number};
+  motionIntensity: number;
+  captionStyle: {width: number; outline: string; shadow: string};
+};
+const themes = Object.fromEntries(libraryManifest.themes.map((entry) => [entry.id, entry.style])) as Record<string, Theme>;
 
 const captionFontSize = (text: string, maxWidth = 820) => {
   if (typeof document === 'undefined') return text.length > 32 ? 43 : 49;
@@ -70,11 +91,11 @@ const captionFontSize = (text: string, maxWidth = 820) => {
   return 38;
 };
 
-const revealStyle = (frame: number, fps: number): React.CSSProperties => {
+const revealStyle = (frame: number, fps: number, intensity = 1): React.CSSProperties => {
   const enter = spring({frame, fps, config: {damping: 18, stiffness: 120}});
   return {
     opacity: enter,
-    transform: `translateY(${interpolate(enter, [0, 1], [42, 0])}px)`,
+    transform: `translateY(${interpolate(enter, [0, 1], [42 * intensity, 0])}px)`,
   };
 };
 
@@ -142,7 +163,7 @@ const AssetPanel: React.FC<{scene: Scene}> = ({scene}) => {
     height: `${100 / crop.height}%`,
     left: `${(-crop.x / crop.width) * 100}%`,
     top: `${(-crop.y / crop.height) * 100}%`,
-    objectFit: 'cover',
+    objectFit: 'contain',
   };
   return (
     <div style={{height: 790, borderRadius: 38, background: '#fff', overflow: 'hidden', position: 'relative', boxShadow: '0 24px 80px rgba(35, 60, 90, .18)', border: '1px solid #dfe6ef'}}>
@@ -172,12 +193,15 @@ const AssetPanel: React.FC<{scene: Scene}> = ({scene}) => {
   );
 };
 
-const HookScene: React.FC<{scene: Scene}> = ({scene}) => {
+const HookScene: React.FC<{scene: Scene; language: string}> = ({scene, language}) => {
   const frame = useCurrentFrame();
   const {fps} = useVideoConfig();
   return (
-    <AbsoluteFill style={{padding: '300px 84px 420px', justifyContent: 'center', ...revealStyle(frame, fps)}}>
-      <Eyebrow>Điểm đáng chú ý</Eyebrow>
+    <AbsoluteFill
+      style={{padding: '300px 84px 420px', justifyContent: 'center', ...revealStyle(frame, fps)}}
+      from={-1}
+    >
+      <Eyebrow>{language === 'vi' ? labels.vi.hook : labels.en.hook}</Eyebrow>
       <Title>{nfc(scene.title)}</Title>
       {scene.body ? <Body>{nfc(scene.body)}</Body> : null}
       <div style={{width: 120, height: 10, borderRadius: 99, background: '#1677ff', marginTop: 38}} />
@@ -185,26 +209,26 @@ const HookScene: React.FC<{scene: Scene}> = ({scene}) => {
   );
 };
 
-const ScreenshotScene: React.FC<{scene: Scene}> = ({scene}) => {
+const ScreenshotScene: React.FC<{scene: Scene; language: string}> = ({scene, language}) => {
   const frame = useCurrentFrame();
   const {fps} = useVideoConfig();
   return (
     <AbsoluteFill style={{padding: '150px 66px 350px', ...revealStyle(frame, fps)}}>
-      <Eyebrow>Demo sản phẩm</Eyebrow>
+      <Eyebrow>{language === 'vi' ? labels.vi.screenshot : labels.en.screenshot}</Eyebrow>
       <Title compact>{nfc(scene.title)}</Title>
       <div style={{marginTop: 34}}><AssetPanel scene={scene} /></div>
     </AbsoluteFill>
   );
 };
 
-const StepsScene: React.FC<{scene: Scene}> = ({scene}) => {
+const StepsScene: React.FC<{scene: Scene; language: string}> = ({scene, language}) => {
   const frame = useCurrentFrame();
   const {fps} = useVideoConfig();
   return (
     <AbsoluteFill style={{padding: '220px 76px 390px', justifyContent: 'center', ...revealStyle(frame, fps)}}>
       <div style={{display: 'flex', alignItems: 'center', gap: 22}}>
         <div style={{width: 62, height: 62, borderRadius: 18, background: '#1677ff', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 30, fontWeight: 900}}>→</div>
-        <Eyebrow>Cách hoạt động</Eyebrow>
+        <Eyebrow>{language === 'vi' ? labels.vi.steps : labels.en.steps}</Eyebrow>
       </div>
       <Title compact>{nfc(scene.title)}</Title>
       {scene.body ? <Body>{nfc(scene.body)}</Body> : null}
@@ -213,13 +237,13 @@ const StepsScene: React.FC<{scene: Scene}> = ({scene}) => {
   );
 };
 
-const TakeawayScene: React.FC<{scene: Scene}> = ({scene}) => {
+const TakeawayScene: React.FC<{scene: Scene; language: string}> = ({scene, language}) => {
   const frame = useCurrentFrame();
   const {fps} = useVideoConfig();
   return (
     <AbsoluteFill style={{padding: '300px 82px 430px', justifyContent: 'center', ...revealStyle(frame, fps)}}>
       <div style={{padding: '54px 48px', borderRadius: 42, background: '#10233f', boxShadow: '0 30px 90px rgba(16, 35, 63, .28)'}}>
-        <Eyebrow>Kết luận</Eyebrow>
+        <Eyebrow>{language === 'vi' ? labels.vi.takeaway : labels.en.takeaway}</Eyebrow>
         <div style={{fontSize: scene.title.length > 34 ? 62 : 72, lineHeight: 1.12, fontWeight: 900, color: '#fff', marginTop: 20, display: '-webkit-box', WebkitBoxOrient: 'vertical', WebkitLineClamp: 2, overflow: 'hidden'}}>{nfc(scene.title)}</div>
         {scene.body ? <div style={{fontSize: 36, lineHeight: 1.38, fontWeight: 600, color: '#cbd7e8', marginTop: 24}}>{nfc(scene.body)}</div> : null}
       </div>
@@ -227,35 +251,187 @@ const TakeawayScene: React.FC<{scene: Scene}> = ({scene}) => {
   );
 };
 
-const SceneView: React.FC<{scene: Scene}> = ({scene}) => {
-  if (scene.layout === 'screenshot') return <ScreenshotScene scene={scene} />;
-  if (scene.layout === 'steps') return <StepsScene scene={scene} />;
-  if (scene.layout === 'takeaway') return <TakeawayScene scene={scene} />;
-  return <HookScene scene={scene} />;
+const FocusImage: React.FC<{scene: Scene; theme: Theme; height?: number}> = ({scene, theme, height = 800}) => {
+  const frame = useCurrentFrame();
+  const {fps} = useVideoConfig();
+  const asset = scene.asset;
+  if (!asset?.src) {
+    return <div style={{height, border: `2px dashed ${theme.muted}`, borderRadius: 36, display: 'grid', placeItems: 'center', color: theme.muted, fontSize: 28}}>Visual needed for this scene</div>;
+  }
+  const crop = scene.crop ?? {x: 0, y: 0, width: 1, height: 1};
+  const panelWidth = 948;
+  const sourceWidth = asset.width ?? 1200;
+  const sourceHeight = asset.height ?? 900;
+  const scale = Math.max(panelWidth / (crop.width * sourceWidth), height / (crop.height * sourceHeight));
+  const cropWidth = crop.width * sourceWidth * scale;
+  const cropHeight = crop.height * sourceHeight * scale;
+  const zoomAt = scene.motion?.cues?.find((cue) => cue.type === 'zoom')?.atMs ?? scene.startMs;
+  const zoomFrame = Math.max(0, ((zoomAt - scene.startMs) / 1000) * fps);
+  const zoom = interpolate(frame, [zoomFrame, zoomFrame + fps * 2], [1, scene.motion?.zoomTo ?? 1 + .065 * theme.motionIntensity],
+    {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'});
+  return <div style={{width: panelWidth, height, borderRadius: 36, overflow: 'hidden', position: 'relative', border: `2px solid ${theme.muted}55`, boxShadow: '0 28px 90px #0006', background: theme.surface}}>
+    <div style={{position: 'absolute', inset: 0, transform: `scale(${zoom})`}}>
+      <Img src={staticFile(asset.src)} style={{position: 'absolute', width: sourceWidth * scale, height: sourceHeight * scale,
+        left: (panelWidth - cropWidth) / 2 - crop.x * sourceWidth * scale,
+        top: (height - cropHeight) / 2 - crop.y * sourceHeight * scale}} />
+    </div>
+    {scene.callout?.text ? <div style={{position: 'absolute', left: `${(scene.callout.x ?? .08) * 100}%`, top: `${(scene.callout.y ?? .74) * 100}%`,
+      background: theme.accent, color: theme.background, padding: '12px 20px', borderRadius: 18, fontSize: 28, fontWeight: 800, maxWidth: 650}}>{nfc(scene.callout.text)}</div> : null}
+  </div>;
 };
 
-const Captions: React.FC<{captions: Caption[]; safeArea: SafeArea}> = ({captions, safeArea}) => {
+const V3Scene: React.FC<{scene: Scene; theme: Theme}> = ({scene, theme}) => {
+  const frame = useCurrentFrame();
+  const {fps} = useVideoConfig();
+  const reveal = revealStyle(frame, fps, theme.motionIntensity);
+  const titleStyle: React.CSSProperties = {fontSize: theme.typography.headlineSize, lineHeight: 1.1, fontWeight: 900, color: theme.text,
+    letterSpacing: -1.6, maxWidth: 940, overflowWrap: 'break-word'};
+  const bodyStyle: React.CSSProperties = {fontSize: 35, lineHeight: 1.35, fontWeight: 600, color: theme.muted, maxWidth: 900};
+  const layout = scene.component ?? scene.layout;
+  const revealAt = (index: number, total: number) => {
+    const cue = scene.motion?.cues?.[index];
+    const durationFrames = Math.max(1, (scene.endMs - scene.startMs) / 1000 * fps);
+    return cue ? Math.max(0, (cue.atMs - scene.startMs) / 1000 * fps) :
+      index * Math.min(10, durationFrames * .62 / Math.max(1, total - 1));
+  };
+  if (layout === 'brand-hook') {
+    return <AbsoluteFill style={{padding: '250px 70px 410px', justifyContent: 'center', ...reveal}}>
+      {scene.asset?.src ? <div style={{width: 300, height: 300, marginBottom: 55, borderRadius: 48, overflow: 'hidden', background: theme.surface,
+        display: 'grid', placeItems: 'center'}}><Img src={staticFile(scene.asset.src)} style={{maxWidth: 270, maxHeight: 270, objectFit: 'contain'}} /></div>
+        : <div style={{position: 'relative', width: 520, height: 330, marginBottom: 65, display: 'grid', placeItems: 'center'}}>
+          {[300, 230, 155].map((size, index) => <div key={index} style={{position: 'absolute', width: size, height: size,
+            borderRadius: '50%', border: `2px solid ${theme.accent}`, opacity: .2 + index * .16,
+            transform: `rotate(${frame * (index + 1) * .2}deg)`}} />)}
+          <div style={{width: 155, height: 155, borderRadius: 42, background: theme.surface, display: 'grid',
+            placeItems: 'center', color: theme.accent, fontSize: 70, fontWeight: 900,
+            boxShadow: `0 0 85px ${theme.accent}55`}}>✦</div>
+        </div>}
+      <AnimatedText transition={{split: 'word', y: [24, 0], opacity: [0, 1], splitStagger: 3, duration: 18}}
+        style={{...titleStyle, fontSize: 86}}>{nfc(scene.title)}</AnimatedText>
+      {scene.body ? <div style={{...bodyStyle, marginTop: 32}}>{nfc(scene.body)}</div> : null}
+    </AbsoluteFill>;
+  }
+  if (layout === 'screenshot-focus') {
+    return <AbsoluteFill style={{padding: '145px 66px 390px', ...reveal}}>
+      <div style={titleStyle}>{nfc(scene.title)}</div>
+      <div style={{marginTop: 45}}><FocusImage scene={scene} theme={theme} height={890} /></div>
+    </AbsoluteFill>;
+  }
+  if (layout === 'api-response') {
+    const fields = scene.body.split(/[,\n]/).map((part) => part.trim()).filter(Boolean).slice(0, 5);
+    return <AbsoluteFill style={{padding: '210px 75px 410px', justifyContent: 'center', ...reveal}}>
+      <div style={titleStyle}>{nfc(scene.title)}</div>
+      <div style={{marginTop: 55, minHeight: 600, borderRadius: 34, background: theme.surface, padding: '65px 48px', border: `2px solid ${theme.accent}55`,
+        boxShadow: `0 24px 85px ${theme.accent}19`}}>
+        {fields.map((field, index) => <div key={index} style={{fontSize: 39, lineHeight: 1.45, fontWeight: 700, color: theme.text,
+          opacity: interpolate(frame, [revealAt(index, fields.length), revealAt(index, fields.length) + 7], [0, 1], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'}),
+          padding: '29px 0', borderBottom: index < fields.length - 1 ? `1px solid ${theme.muted}44` : 'none'}}>
+          <span style={{color: theme.accent, marginRight: 20}}>{'{ }'}</span>{nfc(field)}
+        </div>)}
+      </div>
+    </AbsoluteFill>;
+  }
+  if (layout === 'diagram-flow') {
+    const steps = scene.body.split(/(?:→|\n)/).map((part) => part.trim()).filter(Boolean).slice(0, 4);
+    return <AbsoluteFill style={{padding: '180px 70px 390px', justifyContent: 'center', ...reveal}}>
+      <div style={titleStyle}>{nfc(scene.title)}</div>
+      <div style={{marginTop: 60, display: 'grid', gap: 34}}>{steps.map((step, index) =>
+        <div key={index} style={{display: 'flex', alignItems: 'center', gap: 30,
+          opacity: interpolate(frame, [revealAt(index, steps.length), revealAt(index, steps.length) + 7], [0, 1], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'})}}>
+          <div style={{width: 68, height: 68, borderRadius: 20, background: theme.accent, color: theme.background,
+            display: 'grid', placeItems: 'center', fontSize: 31, fontWeight: 900}}>{index + 1}</div>
+          <div style={{background: theme.surface, color: theme.text, borderRadius: 24, padding: '34px 34px', flex: 1, fontSize: 41, fontWeight: 700}}>{nfc(step)}</div>
+        </div>)}</div>
+    </AbsoluteFill>;
+  }
+  if (layout === 'metric-breakdown') {
+    const metric = scene.title.match(/[\d,.]+\s?(?:%|ms|s|tokens|million|billion)?/i)?.[0];
+    return <AbsoluteFill style={{padding: '220px 76px 405px', justifyContent: 'center', ...reveal}}>
+      {metric ? <div style={{fontSize: 132, fontWeight: 900, color: theme.accent, lineHeight: 1}}>
+        <AnimatedCounter transition={{values: [0, Number.parseFloat(metric.replace(/,/g, ''))], duration: 34}}
+          toFixed={metric.includes('.') ? metric.split('.')[1].match(/^\d+/)?.[0].length ?? 0 : 0}
+          postfix={metric.match(/[^\d,.].*$/)?.[0] ?? ''} />
+      </div> : null}
+      <div style={{...titleStyle, marginTop: 35}}>{nfc(scene.title)}</div>
+      {scene.body ? <div style={{...bodyStyle, marginTop: 30}}>{nfc(scene.body)}</div> : null}
+      {scene.asset?.src ? <div style={{marginTop: 45}}><FocusImage scene={scene} theme={theme} height={500} /></div> : null}
+    </AbsoluteFill>;
+  }
+  return <AbsoluteFill style={{padding: '240px 78px 420px', justifyContent: 'center', ...reveal}}>
+    <div style={{padding: '70px 62px', background: theme.surface, borderRadius: 42, boxShadow: '0 28px 90px #0005',
+      border: `2px solid ${theme.accent}44`}}>
+      <div style={{height: 9, width: 125, borderRadius: 9, background: theme.accent, marginBottom: 42}} />
+      <div style={titleStyle}>{nfc(scene.title)}</div>
+      {scene.body ? <div style={{...bodyStyle, marginTop: 32}}>{nfc(scene.body)}</div> : null}
+    </div>
+  </AbsoluteFill>;
+};
+
+const SceneView: React.FC<{scene: Scene; language: string; theme: Theme; isV3: boolean}> = ({scene, language, theme, isV3}) => {
+  if (isV3) return <V3Scene scene={scene} theme={theme} />;
+  if (scene.layout === 'screenshot') return <ScreenshotScene scene={scene} language={language} />;
+  if (scene.layout === 'steps') return <StepsScene scene={scene} language={language} />;
+  if (scene.layout === 'takeaway') return <TakeawayScene scene={scene} language={language} />;
+  return <HookScene scene={scene} language={language} />;
+};
+
+const captionText = (tokens: CaptionToken[]) => tokens.map((token) => token.text).join(' ')
+  .replace(/\s+([,.;:!?…%])/g, '$1').normalize('NFC');
+
+const captionLines = (cue: Caption, width: number, fontSize: number): CaptionToken[][] => {
+  if (typeof document === 'undefined') return [cue.tokens];
+  const ctx = document.createElement('canvas').getContext('2d');
+  if (!ctx) return [cue.tokens];
+  ctx.font = `700 ${fontSize}px "Noto Sans"`;
+  if (ctx.measureText(captionText(cue.tokens)).width <= width) return [cue.tokens];
+  const weak = new Set(['at', 'the', 'a', 'an', 'of', 'to', 'with', 'for', 'and', 'or', 'in', 'on', 'và', 'là', 'của', 'ở', 'với']);
+  const options = cue.tokens.slice(2, -1).map((_, offset) => {
+    const pivot = offset + 2;
+    const left = cue.tokens.slice(0, pivot);
+    const right = cue.tokens.slice(pivot);
+    const a = ctx.measureText(captionText(left)).width;
+    const b = ctx.measureText(captionText(right)).width;
+    const penalty = Math.abs(a - b) + (weak.has(left[left.length - 1].text.toLowerCase()) ? 600 : 0) + (right.length === 1 ? 900 : 0);
+    return {left, right, a, b, penalty};
+  }).filter((item) => item.a <= width && item.b <= width);
+  options.sort((a, b) => a.penalty - b.penalty);
+  if (!options.length) throw new Error(`Caption exceeds two lines at 48px: ${cue.text}`);
+  return [options[0].left, options[0].right];
+};
+
+const Captions: React.FC<{captions: Caption[]; safeArea: SafeArea; theme: Theme; isV3: boolean}> = ({captions, safeArea, theme, isV3}) => {
   const frame = useCurrentFrame();
   const {fps} = useVideoConfig();
   const now = (frame / fps) * 1000;
   const cue = captions.find((caption) => now >= caption.startMs && now <= caption.endMs);
   if (!cue) return null;
-  const size = captionFontSize(cue.text);
+  if (!isV3) {
+    const size = captionFontSize(cue.text);
+    return <div style={{position: 'absolute', left: safeArea.left + 12, right: safeArea.right + 12, bottom: safeArea.bottom, textAlign: 'center'}}>
+      <div style={{display: 'inline-block', maxWidth: 820, borderRadius: 24, padding: '18px 24px 20px', background: 'rgba(16,35,63,.92)', fontSize: size, lineHeight: 1.22, fontWeight: 800, color: '#fff'}}>
+        {cue.text}
+      </div>
+    </div>;
+  }
+  const lines = captionLines(cue, theme.captionStyle.width, theme.typography.captionSize);
   return (
-    <div style={{position: 'absolute', left: safeArea.left + 12, right: safeArea.right + 12, bottom: safeArea.bottom, textAlign: 'center'}}>
-      <div style={{display: '-webkit-inline-box', WebkitBoxOrient: 'vertical', WebkitLineClamp: 2, overflow: 'hidden', maxWidth: 820, borderRadius: 24, padding: '18px 24px 20px', background: 'rgba(16, 35, 63, .92)', fontSize: size, lineHeight: 1.22, fontWeight: 800, color: '#fff', boxShadow: '0 12px 40px rgba(0, 0, 0, .22)'}}>
-        {cue.tokens.map((token, index) => {
+    <div style={{position: 'absolute', width: theme.captionStyle.width, left: '50%', transform: 'translateX(-50%)', bottom: safeArea.bottom,
+      textAlign: 'center', fontSize: theme.typography.captionSize, lineHeight: 1.23, fontWeight: 700, color: '#fff',
+      WebkitTextStroke: `3px ${theme.captionStyle.outline}`, paintOrder: 'stroke fill',
+      textShadow: theme.captionStyle.shadow}}>
+      {lines.map((line, lineIndex) => <div key={lineIndex} style={{whiteSpace: 'nowrap'}}>
+        {line.map((token, index) => {
           const start = token.startMs ?? token.start_ms ?? 0;
           const end = token.endMs ?? token.end_ms ?? start;
           const active = now >= start && now <= end;
           return (
             <React.Fragment key={`${start}-${index}`}>
               {index > 0 ? ' ' : ''}
-              <span style={{color: active ? '#62b0ff' : '#fff'}}>{nfc(token.text)}</span>
+              <span style={{color: active ? theme.accent : '#fff'}}>{nfc(token.text)}</span>
             </React.Fragment>
           );
         })}
-      </div>
+      </div>)}
     </div>
   );
 };
@@ -263,6 +439,8 @@ const Captions: React.FC<{captions: Caption[]; safeArea: SafeArea}> = ({captions
 export const VidkitShort: React.FC<VidkitShortProps> = (props) => {
   const {fps} = useVideoConfig();
   const safeArea = props.safeArea ?? defaultSafeArea;
+  const isV3 = props.schemaVersion >= 3;
+  const theme = props.themeData ?? themes[props.theme ?? 'dark-grid'] ?? themes['dark-grid'];
   const [fontHandle] = React.useState(() => delayRender('Loading bundled Noto Sans fonts'));
   React.useEffect(() => {
     let finished = false;
@@ -283,16 +461,26 @@ export const VidkitShort: React.FC<VidkitShortProps> = (props) => {
     return finish;
   }, [fontHandle]);
   return (
-    <AbsoluteFill style={{background: 'linear-gradient(145deg, #f8fafc 0%, #edf3f9 65%, #e7eef8 100%)', color: '#10233f', fontFamily: 'Noto Sans, sans-serif', overflow: 'hidden'}}>
-      <AbsoluteFill style={{opacity: 0.45, backgroundImage: 'radial-gradient(circle at 12% 10%, rgba(22,119,255,.12), transparent 28%), radial-gradient(circle at 90% 60%, rgba(80,145,255,.10), transparent 32%)'}} />
+    <AbsoluteFill style={{background: isV3 ? theme.background : 'linear-gradient(145deg, #f8fafc 0%, #edf3f9 65%, #e7eef8 100%)',
+      color: isV3 ? theme.text : '#10233f', fontFamily: 'Noto Sans, sans-serif', overflow: 'hidden'}}>
+      {isV3 ? <GradientTransition
+        gradient={[
+          `linear-gradient(145deg, ${theme.background}, ${theme.surface})`,
+          `linear-gradient(190deg, ${theme.surface}, ${theme.background})`,
+        ]}
+        frames={[0, Math.max(1, props.durationSeconds * fps)]}
+        style={{position: 'absolute', inset: 0, opacity: .6}}
+      /> : null}
+      <AbsoluteFill style={isV3 ? {backgroundImage: theme.pattern, backgroundSize: '76px 76px', opacity: .75} :
+        {opacity: 0.45, backgroundImage: 'radial-gradient(circle at 12% 10%, rgba(22,119,255,.12), transparent 28%), radial-gradient(circle at 90% 60%, rgba(80,145,255,.10), transparent 32%)'}} />
       {props.audioSrc ? <Audio src={staticFile(props.audioSrc)} /> : null}
       {props.scenes.map((scene) => {
         const from = Math.max(0, Math.floor((scene.startMs / 1000) * fps));
         const duration = Math.max(1, Math.ceil(((scene.endMs - scene.startMs) / 1000) * fps));
-        return <Sequence key={scene.id} from={from} durationInFrames={duration} premountFor={Math.min(fps, from)}><SceneView scene={scene} /></Sequence>;
+        return <Sequence key={scene.id} from={from} durationInFrames={duration} premountFor={Math.min(fps, from)}><SceneView scene={scene} language={props.language} theme={theme} isV3={isV3} /></Sequence>;
       })}
-      <Captions captions={props.captions} safeArea={safeArea} />
-      <div style={{position: 'absolute', top: safeArea.top, left: safeArea.left, fontSize: 22, fontWeight: 800, letterSpacing: 1.4, color: '#718096'}}>VIDKIT · {props.language.toUpperCase()}</div>
+      <Captions captions={props.captions} safeArea={safeArea} theme={theme} isV3={isV3} />
+      {!isV3 ? <div style={{position: 'absolute', top: safeArea.top, left: safeArea.left, fontSize: 22, fontWeight: 800, letterSpacing: 1.4, color: '#718096'}}>VIDKIT · {props.language.toUpperCase()}</div> : null}
     </AbsoluteFill>
   );
 };
