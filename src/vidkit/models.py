@@ -13,13 +13,18 @@ class Mode(StrEnum):
 class ArtifactKind(StrEnum):
     SOURCE = "source"
     SCRIPT = "script"
+    BRIEF = "brief"
     AUDIO = "audio"
     TRANSCRIPT = "transcript"
     ASSET_MANIFEST = "asset-manifest"
     STORYBOARD = "storyboard"
+    CAPTION_PLAN = "caption-plan"
     TIMELINE = "timeline"
     SUBTITLE_SRT = "subtitle-srt"
     SUBTITLE_VTT = "subtitle-vtt"
+    PREVIEW = "preview"
+    QA_REPORT = "qa-report"
+    APPROVAL = "approval"
     RENDER = "render"
     PUBLICATION = "publication"
 
@@ -74,6 +79,9 @@ class CaptionCue:
     start_ms: int
     end_ms: int
     tokens: list[CaptionToken] = field(default_factory=list)
+    lines: list[str] = field(default_factory=list)
+    start_word: int = 0
+    end_word: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -81,4 +89,7 @@ class CaptionCue:
             "startMs": self.start_ms,
             "endMs": self.end_ms,
             "tokens": [token.to_dict() for token in self.tokens],
+            "lines": self.lines,
+            "startWord": self.start_word,
+            "endWord": self.end_word,
         }
